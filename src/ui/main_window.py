@@ -1,9 +1,14 @@
 import json
 import os
 import tkinter as tk
+from tkinter import filedialog, messagebox
 
 from PIL import Image, ImageTk
 
+from src.analysis.controller import AnalysisController
+from src.core.image_manager import ImageManager
+from src.core.metadata_extractor import MetadataExtractor
+from src.processing.auto_enhancer import AutoEnhancer
 from src.ui.controllers.version_controller import VersionController
 from src.ui.widgets.welcome_popup import WelcomePopup
 
@@ -16,8 +21,13 @@ class MainWindow:
         self.root = root  # ← DEBE IR PRIMERO
         self.version = VersionController()
 
-        self.root.title(self.version.get_full_version())
+        # Inicializar managers
+        self.image_manager = ImageManager()
+        self.metadata_extractor = MetadataExtractor()
+        self.auto_enhancer = AutoEnhancer()
+        self.analysis_controller = AnalysisController()
 
+        self.root.title(self.version.get_full_version())
         self.root.geometry("1300x850")
 
         self.load_styles()
@@ -49,7 +59,7 @@ class MainWindow:
         top_bar.pack(side="top", fill="x")
 
         try:
-            logo_img = Image.open(LOGO_PATH).resize((55, 55))
+            logo_img = Image.open(LOGO_PATH).resize((100, 100))
             self.logo_img = ImageTk.PhotoImage(logo_img)
             logo_label = tk.Label(
                 top_bar, image=self.logo_img, bg=self.theme["panel_bg"]
@@ -63,7 +73,6 @@ class MainWindow:
             )
         logo_label.pack(side="left", padx=12)
 
-        # Ribbon (simulación tipo Windows)
         ribbon = tk.Frame(top_bar, bg=self.theme["panel_bg"])
         ribbon.pack(side="left", padx=10)
 
@@ -153,7 +162,6 @@ class MainWindow:
             command=self.on_restore,
         ).pack(fill="x", pady=3)
 
-        # Panel derecho: Avanzado
         self.right_panel = tk.Frame(
             main_frame, width=300, bg=self.theme["panel_bg"], padx=10, pady=10
         )
@@ -213,36 +221,221 @@ class MainWindow:
             fg=self.theme["text_color"],
         ).pack()
 
-    # ================LOGICA============================
-
     def on_file(self):
-        pass
+        """Menú Archivo"""
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Abrir imagen...", command=self.on_open_image)
+        menu.add_separator()
+        menu.add_command(label="Guardar imagen", command=self.on_save_image)
+        menu.add_command(label="Exportar como...", command=self.on_export_image)
+        menu.add_separator()
+        menu.add_command(label="Salir", command=self.root.quit)
+
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
 
     def on_processing(self):
-        pass
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Auto-mejorar", command=self.on_auto_enhance)
+        menu.add_separator()
+        menu.add_command(
+            label="Ajustar brillo/contraste", command=self.on_adjust_brightness
+        )
+        menu.add_command(label="Filtros", command=self.on_filters)
+        menu.add_separator()
+        menu.add_command(label="Restaurar original", command=self.on_restore)
+
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
 
     def on_analysis(self):
-        pass
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(
+            label="Detección de anomalías", command=self.on_detect_anomalies
+        )
+        menu.add_command(
+            label="Detección de fracturas", command=self.on_detect_fractures
+        )
+        menu.add_command(label="Cardiomegalia", command=self.on_detect_heart)
+        menu.add_separator()
+        menu.add_command(label="Mostrar histograma", command=self.on_show_histogram)
+
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
 
     def on_settings(self):
-        pass
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Tema claro/oscuro", command=self.on_toggle_theme)
+        menu.add_command(label="Configuración", command=self.on_config)
+
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
 
     def on_open_image(self):
+        file_types = [
+            ("Imágenes médicas", "*.dcm"),
+            ("Imágenes", "*.png *.jpg *.jpeg *.tiff *.bmp"),
+            ("Todos los archivos", "*.*"),
+        ]
+
+        file_path = filedialog.askopenfilename(
+            title="Seleccionar imagen de rayos X", filetypes=file_types
+        )
+
+        if file_path:
+            try:
+                success, message = self.image_manager.load_image(file_path)
+                if success:
+                    self.display_image()
+                    self.update_metadata()
+                    self.update_histogram()
+                else:
+                    messagebox.showerror(
+                        "Error", f"No se pudo cargar la imagen: {message}"
+                    )
+            except Exception as e:
+                messagebox.showerror("Error", f"Error al cargar imagen: {str(e)}")
+
+    def display_image(self):
+        if self.image_manager.current_image:
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
+
+            if canvas_width > 1 and canvas_height > 1:
+                img = self.image_manager.current_image.copy()
+                img.thumbnail(
+                    (canvas_width - 20, canvas_height - 20), Image.Resampling.LANCZOS
+                )
+
+                self.tk_image = ImageTk.PhotoImage(img)
+                self.canvas.delete("all")
+                self.canvas.create_image(
+                    canvas_width // 2,
+                    canvas_height // 2,
+                    image=self.tk_image,
+                    anchor="center",
+                )
+
+    def update_metadata(self):
+        if self.image_manager.current_image:
+            metadata = self.metadata_extractor.extract_metadata(self.image_manager)
+
+            self.meta_box.config(state="normal")
+            self.meta_box.delete("1.0", "end")
+
+            for key, value in metadata.items():
+                self.meta_box.insert("end", f"{key}: {value}\n")
+
+            self.meta_box.config(state="disabled")
+
+    def update_histogram(self):
+        # Aquí integrarías con src.ui.histogram_panel
         pass
 
     def on_auto_enhance(self):
-        pass
+        if self.image_manager.current_image:
+            try:
+                enhanced_image = self.auto_enhancer.enhance(
+                    self.image_manager.current_image
+                )
+                self.image_manager.current_image = enhanced_image
+                self.display_image()
+                messagebox.showinfo("Éxito", "Imagen mejorada automáticamente")
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo mejorar la imagen: {str(e)}")
+        else:
+            messagebox.showwarning("Advertencia", "Primero carga una imagen")
 
     def on_restore(self):
-        pass
+        if self.image_manager.original_image:
+            self.image_manager.restore_original()
+            self.display_image()
+            messagebox.showinfo("Éxito", "Imagen restaurada a su estado original")
+        else:
+            messagebox.showwarning(
+                "Advertencia", "No hay imagen original para restaurar"
+            )
 
     def on_detect_anomalies(self):
-        pass
+        if self.image_manager.current_image:
+            try:
+                result = self.analysis_controller.detect_anomalies(
+                    self.image_manager.current_image
+                )
+                self.show_analysis_result("Anomalías Detectadas", result)
+            except Exception as e:
+                messagebox.showerror(
+                    "Error", f"Error en detección de anomalías: {str(e)}"
+                )
+        else:
+            messagebox.showwarning("Advertencia", "Primero carga una imagen")
 
     def on_detect_fractures(self):
-        pass
+        if self.image_manager.current_image:
+            try:
+                result = self.analysis_controller.detect_fractures(
+                    self.image_manager.current_image
+                )
+                self.show_analysis_result("Fracturas Detectadas", result)
+            except Exception as e:
+                messagebox.showerror(
+                    "Error", f"Error en detección de fracturas: {str(e)}"
+                )
+        else:
+            messagebox.showwarning("Advertencia", "Primero carga una imagen")
 
     def on_detect_heart(self):
+        if self.image_manager.current_image:
+            try:
+                result = self.analysis_controller.detect_cardiomegaly(
+                    self.image_manager.current_image
+                )
+                self.show_analysis_result("Cardiomegalia", result)
+            except Exception as e:
+                messagebox.showerror(
+                    "Error", f"Error en análisis de cardiomegalia: {str(e)}"
+                )
+        else:
+            messagebox.showwarning("Advertencia", "Primero carga una imagen")
+
+    def show_analysis_result(self, title, result):
+        result_window = tk.Toplevel(self.root)
+        result_window.title(title)
+        result_window.geometry("400x300")
+
+        text = tk.Text(result_window, wrap="word")
+        text.pack(fill="both", expand=True, padx=10, pady=10)
+        text.insert("1.0", str(result))
+        text.config(state="disabled")
+
+    def on_save_image(self):
+        if self.image_manager.current_image:
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".png",
+                filetypes=[("PNG", "*.png"), ("JPEG", "*.jpg"), ("TIFF", "*.tiff")],
+            )
+            if file_path:
+                self.image_manager.current_image.save(file_path)
+                messagebox.showinfo("Éxito", "Imagen guardada correctamente")
+
+    def on_export_image(self):
+        # Implementar exportación con metadatos embebidos
+        pass
+
+    def on_adjust_brightness(self):
+        # Integrar con src.processing.manual_adjustments
+        pass
+
+    def on_filters(self):
+        # Integrar con src.processing.edge_detection y otros
+        pass
+
+    def on_show_histogram(self):
+        # Integrar con src.ui.histogram_panel
+        pass
+
+    def on_toggle_theme(self):
+        # Implementar cambio de tema
+        pass
+
+    def on_config(self):
+        # Implementar ventana de configuración
         pass
 
     def show_welcome_message(self):

@@ -3,3 +3,5 @@ matplotlib
 tk
 pydicom
 pyyaml
+pydicom
+pillow
