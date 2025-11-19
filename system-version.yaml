@@ -1,0 +1,11 @@
+name: "MedVision"
+version: "0.1"
+release: "Beta"
+build: 1
+
+author:
+  main: "Cherfo"
+  contributors:
+    - "Por definir"
+
+notes: "Versión preliminar para práctica y demo escolar."

@@ -1,0 +1,45 @@
+{
+  "current_theme": "dark",
+
+  "themes": {
+    "light": {
+      "global_bg": "#f5f5f5",
+      "panel_bg": "#ffffff",
+      "text_color": "#000000",
+      "accent": "#0066cc",
+      "menu_bg": "#eeeeee",
+      "menu_fg": "#000000",
+      "button_bg": "#0066cc",
+      "button_fg": "#ffffff",
+      "button_hover": "#005ab3"
+    },
+
+    "dark": {
+      "global_bg": "#222222",
+      "panel_bg": "#2f2f2f",
+      "text_color": "#ffffff",
+      "accent": "#0080ff",
+      "menu_bg": "#333333",
+      "menu_fg": "#ffffff",
+      "button_bg": "#0080ff",
+      "button_fg": "#ffffff",
+      "button_hover": "#006ad1"
+    }
+  },
+
+  "fonts": {
+    "main": { "family": "Segoe UI", "size": 11 },
+    "title": { "family": "Segoe UI", "size": 16, "weight": "bold" }
+  },
+
+  "panel": {
+    "border_color": "#444444",
+    "padding": 10
+  },
+
+  "button": {
+    "padding_x": 10,
+    "padding_y": 5,
+    "font_size": 12
+  }
+}
