@@ -1,8 +1,6 @@
 import datetime
 import os
 
-from PIL import Image
-
 
 class MetadataExtractor:
     def __init__(self):

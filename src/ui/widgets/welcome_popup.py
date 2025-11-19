@@ -1,11 +1,8 @@
 import tkinter as tk
 
-from src.ui.controllers.version_controller import VersionController
-
 
 class WelcomePopup:
     def __init__(self, root, theme, fonts, version_object, on_close=None):
-        # Asignaciones correctas
         self.root = root
         self.theme = theme
         self.fonts = fonts
@@ -13,27 +10,29 @@ class WelcomePopup:
         self.on_close = on_close
 
         msg = f"""
-            Gracias por usar {self.version.get_name()}.
-            Esta es la versión {self.version.get_full_version()}.
+            Gracias por utilizar {self.version.get_name()}.
+            Actualmente está ejecutando la versión {self.version.get_full_version()}.
 
             Versión: {self.version.get_version()}
             Release: {self.version.get_release()}
             Autor: {self.version.get_author().get("main")}
 
-            Agradecemos su preferencia y apoyo para seguir mejorando. Esperen
-            novedades pronto, por el momento pedimos paciencia y que si
-            tienen ideas, sugerencias, comentarios o errores pueden reportarlos
-            via GitHub.
-            Gracias por usar nuestro programa.
-            -- Atte : {self.version.get_author().get("main")}
+            Agradecemos su confianza y apoyo continuo. Estamos trabajando para
+            incorporar nuevas funciones y mejoras, por lo que les pedimos un
+            poco de paciencia mientras avanzamos.
+
+            Si desean compartir ideas, sugerencias, comentarios o reportar algún
+            error, pueden hacerlo a través de nuestro repositorio en GitHub.
+
+            ¡Gracias por formar parte de este proyecto!
+            -- Atentamente: {self.version.get_author().get("main")}
         """.strip()
 
-        # Ahora sí puedes usar self.root
         self.popup = tk.Toplevel(self.root)
         self.popup.title("Bienvenido")
         self.popup.transient(self.root)
         self.popup.grab_set()
-        self.popup.geometry("420x350")
+        self.popup.geometry("450x350")
         self.popup.configure(bg=self.theme["panel_bg"])
 
         tk.Label(
