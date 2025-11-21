@@ -7,4 +7,3 @@ pydicom
 pillow
 opencv-python
 torch
-cupy-cuda12x
