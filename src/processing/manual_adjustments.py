@@ -182,14 +182,33 @@ class ManualAdjustments:
             try:
                 img_array = np.array(image)
 
+                # If kwargs do not provide params, allow reading from attributes set by UI helpers
+                params = dict(kwargs)
+                if not params:
+                    # adaptive params
+                    params = getattr(self, "adaptive_params", {}) or params
+                    # kmeans param
+                    if not params and hasattr(self, "kmeans_k"):
+                        params = {"k": getattr(self, "kmeans_k")}
+
                 if method == "otsu":
                     return self._segment_otsu(img_array)
                 elif method == "adaptive":
-                    block_size = kwargs.get("block_size", 11)
+                    block_size = params.get("block_size", 11)
                     return self._segment_adaptive(img_array, block_size)
                 elif method == "threshold":
-                    threshold = kwargs.get("threshold", 128)
+                    threshold = params.get("threshold", 128)
                     return self._segment_threshold(img_array, threshold)
+                elif method == "kmeans":
+                    k = params.get("k", 3)
+                    return self._segment_kmeans(img_array, k=k)
+                elif method in ("erode", "dilate"):
+                    kernel = params.get("kernel", 3)
+                    iterations = params.get("iterations", 1)
+                    if method == "erode":
+                        return self._morph_erode(img_array, kernel_size=kernel, iterations=iterations)
+                    else:
+                        return self._morph_dilate(img_array, kernel_size=kernel, iterations=iterations)
                 else:
                     logger.warning(f"Método de segmentación no reconocido: {method}")
                     return image
@@ -202,14 +221,22 @@ class ManualAdjustments:
         try:
             import cv2
 
+            # Ensure grayscale
+            if img_array.ndim == 3:
+                img_gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            else:
+                img_gray = img_array
+
             _, thresh = cv2.threshold(
-                img_array, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+                img_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
             )
             return Image.fromarray(thresh)
         except ImportError:
             # Fallback manual
             from PIL import ImageOps
-
+            if img_array.ndim == 3:
+                img_gray = Image.fromarray(cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY))
+                return ImageOps.autocontrast(img_gray)
             return ImageOps.autocontrast(Image.fromarray(img_array))
 
     def _segment_adaptive(
@@ -218,9 +245,20 @@ class ManualAdjustments:
         try:
             import cv2
 
+            # Ensure odd block size
+            block_size = int(block_size)
+            if block_size < 3:
+                block_size = 3
             block_size = block_size if block_size % 2 == 1 else block_size + 1
+
+            # Convert to grayscale if needed
+            if img_array.ndim == 3:
+                img_gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            else:
+                img_gray = img_array
+
             thresh = cv2.adaptiveThreshold(
-                img_array,
+                img_gray,
                 255,
                 cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                 cv2.THRESH_BINARY,
@@ -233,8 +271,221 @@ class ManualAdjustments:
             return Image.fromarray(img_array)
 
     def _segment_threshold(self, img_array: np.ndarray, threshold: int) -> Image.Image:
-        thresh = (img_array > threshold).astype(np.uint8) * 255
-        return Image.fromarray(thresh)
+        # Convert to grayscale if needed
+        try:
+            import cv2
+
+            if img_array.ndim == 3:
+                img_gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            else:
+                img_gray = img_array
+
+            thresh = (img_gray > int(threshold)).astype(np.uint8) * 255
+            return Image.fromarray(thresh)
+        except Exception:
+            thresh = (img_array > int(threshold)).astype(np.uint8) * 255
+            return Image.fromarray(thresh)
+
+    def _segment_kmeans(self, img_array: np.ndarray, k: int = 3, max_iters: int = 30) -> Image.Image:
+        try:
+            # Work on color or grayscale
+            # Determine dimensions
+            if img_array.ndim == 2:
+                h, w = img_array.shape
+                channels = 1
+            else:
+                h, w, channels = img_array.shape
+
+            # Flatten pixels to (n_pixels, channels)
+            if channels == 1:
+                flat = img_array.reshape(-1, 1).astype(np.float32)
+            else:
+                flat = img_array.reshape(-1, channels).astype(np.float32)
+
+            n_pixels = flat.shape[0]
+
+            # Clamp k to number of pixels
+            k = max(1, int(min(k, n_pixels)))
+
+            # Initialize centroids randomly from pixels
+            rng = np.random.default_rng(0)
+            indices = rng.choice(n_pixels, size=k, replace=False)
+            centroids = flat[indices].astype(np.float32)
+
+            for _ in range(max_iters):
+                distances = np.sqrt(((flat[:, None] - centroids[None, :]) ** 2).sum(axis=2))
+                labels = np.argmin(distances, axis=1)
+                new_centroids = np.array(
+                    [
+                        flat[labels == i].mean(axis=0)
+                        if np.any(labels == i)
+                        else centroids[i]
+                        for i in range(k)
+                    ],
+                    dtype=np.float32,
+                )
+                if np.allclose(centroids, new_centroids):
+                    break
+                centroids = new_centroids
+
+            segmented_flat = centroids[labels].astype(np.uint8)
+
+            # Reshape back to image shape
+            if channels == 1:
+                segmented = segmented_flat.reshape(h, w)
+            else:
+                segmented = segmented_flat.reshape(h, w, channels)
+
+            return Image.fromarray(segmented)
+        except Exception as e:
+            logger.error(f"Error en k-means segmentation: {e}")
+            return Image.fromarray(img_array)
+
+    def _morph_erode(self, img_array: np.ndarray, kernel_size: int = 3, iterations: int = 1) -> Image.Image:
+        try:
+            import cv2
+
+            if kernel_size <= 0:
+                kernel_size = 3
+            kernel = np.ones((kernel_size, kernel_size), np.uint8)
+
+            if img_array.ndim == 3:
+                # Work on grayscale conversion for morphology
+                gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = img_array
+
+            eroded = cv2.erode(gray, kernel, iterations=iterations)
+            return Image.fromarray(eroded)
+        except Exception as e:
+            logger.error(f"Error en erosión morfológica: {e}")
+            return Image.fromarray(img_array)
+
+    def _morph_dilate(self, img_array: np.ndarray, kernel_size: int = 3, iterations: int = 1) -> Image.Image:
+        try:
+            import cv2
+
+            if kernel_size <= 0:
+                kernel_size = 3
+            kernel = np.ones((kernel_size, kernel_size), np.uint8)
+
+            if img_array.ndim == 3:
+                gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = img_array
+
+            dilated = cv2.dilate(gray, kernel, iterations=iterations)
+            return Image.fromarray(dilated)
+        except Exception as e:
+            logger.error(f"Error en dilatación morfológica: {e}")
+            return Image.fromarray(img_array)
+
+    @log_function_call()
+    def compute_mask_stats(self, mask_image) -> dict:
+        """Compute area and perimeter from a mask or labeled image.
+
+        Returns a dict with keys for each label (as str) and values {'area':int,'perimeter':float}.
+        If mask_image is a PIL Image, it will be converted to np.ndarray.
+        """
+        try:
+            if hasattr(mask_image, "convert"):
+                # PIL Image
+                arr = np.array(mask_image)
+            else:
+                arr = np.array(mask_image)
+
+            import cv2
+
+            # If RGB, collapse to single channel by taking first channel
+            if arr.ndim == 3:
+                arr = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+
+            # Normalize mask values to 0..255 uint8
+            if arr.dtype != np.uint8:
+                arr = np.clip(arr, 0, 255).astype(np.uint8)
+
+            stats = {}
+
+            unique_vals = np.unique(arr)
+            for val in unique_vals:
+                # treat background value as 0 but still compute if user wants
+                mask = (arr == val).astype(np.uint8) * 255
+                # find contours
+                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                area = int(np.sum(mask > 0))
+                perimeter = 0.0
+                for c in contours:
+                    perimeter += float(cv2.arcLength(c, True))
+
+                stats[str(int(val))] = {"area": area, "perimeter": perimeter}
+
+            return stats
+        except Exception as e:
+            logger.error(f"Error computing mask stats: {e}")
+            return {}
+
+    @log_function_call()
+    def kmeans_cluster_stats(self, image: Image.Image, k: int = 3, max_iters: int = 30) -> list:
+        """Run k-means and return per-cluster area/perimeter stats.
+
+        Returns a list of dicts: [{'label':i,'area':..., 'perimeter':..., 'count':...}, ...]
+        """
+        try:
+            img_array = np.array(image)
+            # flatten as in _segment_kmeans
+            if img_array.ndim == 2:
+                h, w = img_array.shape
+                flat = img_array.reshape(-1, 1).astype(np.float32)
+                channels = 1
+            else:
+                h, w, channels = img_array.shape
+                flat = img_array.reshape(-1, channels).astype(np.float32)
+
+            n_pixels = flat.shape[0]
+            k = max(1, int(min(k, n_pixels)))
+
+            rng = np.random.default_rng(0)
+            indices = rng.choice(n_pixels, size=k, replace=False)
+            centroids = flat[indices].astype(np.float32)
+
+            labels = np.zeros(n_pixels, dtype=np.int32)
+            for _ in range(max_iters):
+                # compute distances
+                distances = np.sqrt(((flat[:, None] - centroids[None, :]) ** 2).sum(axis=2))
+                new_labels = np.argmin(distances, axis=1)
+                if np.array_equal(new_labels, labels):
+                    labels = new_labels
+                    break
+                labels = new_labels
+                new_centroids = np.array(
+                    [
+                        flat[labels == i].mean(axis=0) if np.any(labels == i) else centroids[i]
+                        for i in range(k)
+                    ],
+                    dtype=np.float32,
+                )
+                centroids = new_centroids
+
+            label_map = labels.reshape(h, w)
+
+            # compute stats per label
+            import cv2
+
+            results = []
+            for i in range(k):
+                mask = (label_map == i).astype(np.uint8) * 255
+                contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                area = int(np.sum(mask > 0))
+                perimeter = 0.0
+                for c in contours:
+                    perimeter += float(cv2.arcLength(c, True))
+
+                results.append({"label": i, "area": area, "perimeter": perimeter, "count": int(np.sum(label_map == i))})
+
+            return results
+        except Exception as e:
+            logger.error(f"Error computing kmeans cluster stats: {e}")
+            return []
 
     @log_function_call()
     def calculate_histogram(self, image: Image.Image) -> Dict[str, Any]:
@@ -394,301 +645,3 @@ class ManualAdjustments:
             return enhancer.enhance(1.2)
         except:
             return image
-
-    def on_segmentation(self):
-        """Interfaz de segmentación con parámetros configurables"""
-        if not self.image_controller.has_image():
-            self.show_message("Advertencia", "Primero carga una imagen")
-            return
-
-        seg_window = tk.Toplevel(self.root)
-        seg_window.title("Segmentación Avanzada")
-        seg_window.geometry("400x500")
-        seg_window.configure(bg=self.theme["panel_bg"])
-
-        main_frame = tk.Frame(seg_window, bg=self.theme["panel_bg"], padx=20, pady=20)
-        main_frame.pack(fill="both", expand=True)
-
-        tk.Label(
-            main_frame,
-            text="Selecciona método de segmentación:",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-            font=(self.fonts["main"]["family"], 11, "bold"),
-        ).pack(anchor="w", pady=(0, 15))
-
-        # Métodos de segmentación
-        methods = [
-            ("Umbralización Otsu (Automático)", "otsu"),
-            ("Umbral Manual", "threshold"),
-            ("Umbralización Adaptativa", "adaptive"),
-            ("K-Means Clustering", "kmeans"),
-            ("Operaciones Morfológicas", "morphological"),
-            ("Watershed", "watershed"),
-        ]
-
-        selected_method = tk.StringVar(value="otsu")
-
-        for name, method in methods:
-            tk.Radiobutton(
-                main_frame,
-                text=name,
-                variable=selected_method,
-                value=method,
-                bg=self.theme["panel_bg"],
-                fg=self.theme["text_color"],
-                selectcolor=self.theme["accent"],
-            ).pack(anchor="w", pady=2)
-
-        # Frame para parámetros
-        params_frame = tk.Frame(main_frame, bg=self.theme["panel_bg"])
-        params_frame.pack(fill="x", pady=15)
-
-        self.segmentation_params = {}
-
-        def update_params(*args):
-            # Limpiar frame de parámetros
-            for widget in params_frame.winfo_children():
-                widget.destroy()
-
-            method = selected_method.get()
-
-            if method == "threshold":
-                self._create_threshold_params(params_frame)
-            elif method == "adaptive":
-                self._create_adaptive_params(params_frame)
-            elif method == "kmeans":
-                self._create_kmeans_params(params_frame)
-            elif method == "morphological":
-                self._create_morphological_params(params_frame)
-
-        selected_method.trace("w", update_params)
-        update_params()  # Llamar inicialmente
-
-        # Botones de acción
-        button_frame = tk.Frame(main_frame, bg=self.theme["panel_bg"])
-        button_frame.pack(fill="x", pady=20)
-
-        def apply_segmentation():
-            method = selected_method.get()
-            params = self.segmentation_params.copy()
-
-            try:
-                current_image = self.image_controller.get_current_image()
-                if method in ["kmeans", "morphological", "watershed"]:
-                    # Usar segmentación avanzada
-                    segmented, properties = (
-                        self.manual_adjustments.advanced_segmentation(
-                            current_image, method, **params
-                        )
-                    )
-
-                    # Mostrar propiedades
-                    props_text = f"Segmentación {method}:\n"
-                    props_text += f"Regiones: {properties.get('num_regions', 0)}\n"
-                    props_text += (
-                        f"Área total: {properties.get('total_area', 0):.0f} px\n"
-                    )
-                    props_text += f"Perímetro total: {properties.get('total_perimeter', 0):.0f} px"
-
-                    self.show_message("Propiedades Segmentación", props_text)
-
-                else:
-                    # Segmentación básica
-                    segmented = self.manual_adjustments.segment_image(
-                        current_image, method, **params
-                    )
-                    properties = {}
-
-                self.image_controller.image_manager.update_image(
-                    segmented, f"Segmentación: {method}"
-                )
-                self.display_image()
-                self.update_histogram()
-                seg_window.destroy()
-
-            except Exception as e:
-                logger.error(f"Error en segmentación: {e}")
-                self.show_message("Error", f"Error en segmentación: {str(e)}")
-
-        tk.Button(
-            button_frame,
-            text="Aplicar Segmentación",
-            bg=self.theme["accent"],
-            fg=self.theme["text_color"],
-            font=(self.fonts["main"]["family"], 10, "bold"),
-            command=apply_segmentation,
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            button_frame,
-            text="Cancelar",
-            bg=self.theme["accent"],
-            fg=self.theme["text_color"],
-            command=seg_window.destroy,
-        ).pack(side="right", padx=5)
-
-    def _create_threshold_params(self, parent):
-        """Crea controles para parámetros de umbral manual"""
-        tk.Label(
-            parent,
-            text="Umbral:",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-        ).pack(anchor="w")
-
-        threshold_var = tk.IntVar(value=128)
-        threshold_scale = tk.Scale(
-            parent,
-            from_=0,
-            to=255,
-            variable=threshold_var,
-            orient="horizontal",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-            troughcolor=self.theme["accent"],
-        )
-        threshold_scale.pack(fill="x", pady=5)
-
-        self.segmentation_params["threshold"] = threshold_var.get()
-        threshold_scale.configure(
-            command=lambda v: self.segmentation_params.update({"threshold": int(v)})
-        )
-
-    def _create_adaptive_params(self, parent):
-        """Crea controles para parámetros de umbral adaptativo"""
-        tk.Label(
-            parent,
-            text="Tamaño de bloque:",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-        ).pack(anchor="w")
-
-        block_size_var = tk.IntVar(value=11)
-        block_scale = tk.Scale(
-            parent,
-            from_=3,
-            to=21,
-            variable=block_size_var,
-            orient="horizontal",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-            troughcolor=self.theme["accent"],
-        )
-        block_scale.pack(fill="x", pady=5)
-
-        self.segmentation_params["block_size"] = block_size_var.get()
-        block_scale.configure(
-            command=lambda v: self.segmentation_params.update({"block_size": int(v)})
-        )
-
-    def _create_kmeans_params(self, parent):
-        """Crea controles para parámetros de K-means"""
-        tk.Label(
-            parent,
-            text="Número de clusters (k):",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-        ).pack(anchor="w")
-
-        k_var = tk.IntVar(value=3)
-        k_scale = tk.Scale(
-            parent,
-            from_=2,
-            to=8,
-            variable=k_var,
-            orient="horizontal",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-            troughcolor=self.theme["accent"],
-        )
-        k_scale.pack(fill="x", pady=5)
-
-        self.segmentation_params["k"] = k_var.get()
-        k_scale.configure(
-            command=lambda v: self.segmentation_params.update({"k": int(v)})
-        )
-
-    def _create_morphological_params(self, parent):
-        """Crea controles para parámetros morfológicos"""
-        # Operación
-        tk.Label(
-            parent,
-            text="Operación:",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-        ).pack(anchor="w")
-
-        op_var = tk.StringVar(value="erode")
-        op_frame = tk.Frame(parent, bg=self.theme["panel_bg"])
-        op_frame.pack(fill="x", pady=5)
-
-        for op in ["erode", "dilate", "open", "close"]:
-            tk.Radiobutton(
-                op_frame,
-                text=op.capitalize(),
-                variable=op_var,
-                value=op,
-                bg=self.theme["panel_bg"],
-                fg=self.theme["text_color"],
-                selectcolor=self.theme["accent"],
-            ).pack(side="left", padx=5)
-
-        # Tamaño del kernel
-        tk.Label(
-            parent,
-            text="Tamaño del kernel:",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-        ).pack(anchor="w", pady=(10, 0))
-
-        kernel_var = tk.IntVar(value=3)
-        kernel_scale = tk.Scale(
-            parent,
-            from_=3,
-            to=15,
-            variable=kernel_var,
-            orient="horizontal",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-            troughcolor=self.theme["accent"],
-        )
-        kernel_scale.pack(fill="x", pady=5)
-
-        self.segmentation_params["operation"] = op_var.get()
-        self.segmentation_params["kernel_size"] = kernel_var.get()
-
-        op_var.trace(
-            "w",
-            lambda *args: self.segmentation_params.update({"operation": op_var.get()}),
-        )
-        kernel_scale.configure(
-            command=lambda v: self.segmentation_params.update({"kernel_size": int(v)})
-        )
-
-    def _calculate_segmentation_properties(self, binary_image: np.ndarray) -> dict:
-        """Calcula propiedades de la segmentación (área, perímetro)"""
-        import cv2
-
-        contours, _ = cv2.findContours(
-            binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-
-        properties = {
-            "num_regions": len(contours),
-            "total_area": 0,
-            "total_perimeter": 0,
-            "regions": [],
-        }
-
-        for i, contour in enumerate(contours):
-            area = cv2.contourArea(contour)
-            perimeter = cv2.arcLength(contour, True)
-
-            properties["total_area"] += area
-            properties["total_perimeter"] += perimeter
-            properties["regions"].append(
-                {"id": i + 1, "area": area, "perimeter": perimeter}
-            )
-
-        return properties
