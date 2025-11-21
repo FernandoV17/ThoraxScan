@@ -41,7 +41,7 @@ class MainWindow:
 
     def setup_ui(self):
         self.root.title(self.version.get_full_version())
-        self.root.geometry("1300x850")
+        self.root.state('zoomed')
 
         self.load_styles()
         self.apply_global_style()
