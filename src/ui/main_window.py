@@ -556,7 +556,29 @@ class MainWindow:
         self.show_message("Info", "Histograma detallado en desarrollo")
 
     def on_toggle_theme(self):
-        self.show_message("Info", "Cambio de tema en desarrollo")
+        # 1. Definir el nuevo tema (si es dark pasa a light, y viceversa)
+        current = self.styles.get("current_theme", "dark")
+        new_theme = "light" if current == "dark" else "dark"
+
+        # 2. Actualizar la configuración en memoria
+        self.styles["current_theme"] = new_theme
+        
+        # 3. Guardar el cambio en el archivo físico (styles.json)
+        try:
+            import json
+            # STYLES_PATH ya está definido al inicio de tu archivo
+            with open(STYLES_PATH, 'w', encoding='utf-8') as f:
+                json.dump(self.styles, f, indent=4)
+            
+            # 4. Avisar al usuario
+            self.show_message(
+                "Tema Cambiado", 
+                f"Se cambió al tema '{new_theme}'.\n\n"
+                "Por favor, cierra y vuelve a abrir la aplicación para ver los cambios."
+            )
+            
+        except Exception as e:
+            self.show_message("Error", f"No se pudo guardar la configuración: {e}")
 
     def on_config(self):
         self.show_message("Info", "Configuración en desarrollo")
