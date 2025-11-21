@@ -45,7 +45,8 @@ class AnalysisController:
     def __init__(self):
         self.frequency_analyzer = (
             FrequencyAnalysis()
-        )        logger.info("AnalysisController inicializado")
+        )
+        logger.info("AnalysisController inicializado")
 
     def analyze_frequency_domain(self, pil_image):
         try:
