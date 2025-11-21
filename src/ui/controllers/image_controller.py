@@ -223,3 +223,27 @@ class ImageController:
 
     def has_image(self):
         return self.image_manager.has_image()
+
+    def normalize_image(self):
+        return self.normalize_image_with_method("clahe")
+
+    def apply_frequency_filter(
+        self, filter_type: str, cutoff: int = 30, strength: float = 1.0
+    ):
+        """Aplica filtro en dominio de frecuencia"""
+        if not self.has_image():
+            return False, "No hay imagen cargada"
+
+        try:
+            current_image = self.get_current_image()
+            filtered_image = self.analysis_controller.apply_frequency_filter(
+                current_image, filter_type, cutoff, strength
+            )
+            self.image_manager.update_image(
+                filtered_image, f"Filtro Frecuencia: {filter_type}"
+            )
+            self.notify_callbacks("image_updated")
+            return True, f"Filtro {filter_type} aplicado correctamente"
+        except Exception as e:
+            logger.error(f"Error aplicando filtro frecuencia: {e}")
+            return False, f"Error aplicando filtro: {str(e)}"

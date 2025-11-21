@@ -394,3 +394,301 @@ class ManualAdjustments:
             return enhancer.enhance(1.2)
         except:
             return image
+
+    def on_segmentation(self):
+        """Interfaz de segmentación con parámetros configurables"""
+        if not self.image_controller.has_image():
+            self.show_message("Advertencia", "Primero carga una imagen")
+            return
+
+        seg_window = tk.Toplevel(self.root)
+        seg_window.title("Segmentación Avanzada")
+        seg_window.geometry("400x500")
+        seg_window.configure(bg=self.theme["panel_bg"])
+
+        main_frame = tk.Frame(seg_window, bg=self.theme["panel_bg"], padx=20, pady=20)
+        main_frame.pack(fill="both", expand=True)
+
+        tk.Label(
+            main_frame,
+            text="Selecciona método de segmentación:",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            font=(self.fonts["main"]["family"], 11, "bold"),
+        ).pack(anchor="w", pady=(0, 15))
+
+        # Métodos de segmentación
+        methods = [
+            ("Umbralización Otsu (Automático)", "otsu"),
+            ("Umbral Manual", "threshold"),
+            ("Umbralización Adaptativa", "adaptive"),
+            ("K-Means Clustering", "kmeans"),
+            ("Operaciones Morfológicas", "morphological"),
+            ("Watershed", "watershed"),
+        ]
+
+        selected_method = tk.StringVar(value="otsu")
+
+        for name, method in methods:
+            tk.Radiobutton(
+                main_frame,
+                text=name,
+                variable=selected_method,
+                value=method,
+                bg=self.theme["panel_bg"],
+                fg=self.theme["text_color"],
+                selectcolor=self.theme["accent"],
+            ).pack(anchor="w", pady=2)
+
+        # Frame para parámetros
+        params_frame = tk.Frame(main_frame, bg=self.theme["panel_bg"])
+        params_frame.pack(fill="x", pady=15)
+
+        self.segmentation_params = {}
+
+        def update_params(*args):
+            # Limpiar frame de parámetros
+            for widget in params_frame.winfo_children():
+                widget.destroy()
+
+            method = selected_method.get()
+
+            if method == "threshold":
+                self._create_threshold_params(params_frame)
+            elif method == "adaptive":
+                self._create_adaptive_params(params_frame)
+            elif method == "kmeans":
+                self._create_kmeans_params(params_frame)
+            elif method == "morphological":
+                self._create_morphological_params(params_frame)
+
+        selected_method.trace("w", update_params)
+        update_params()  # Llamar inicialmente
+
+        # Botones de acción
+        button_frame = tk.Frame(main_frame, bg=self.theme["panel_bg"])
+        button_frame.pack(fill="x", pady=20)
+
+        def apply_segmentation():
+            method = selected_method.get()
+            params = self.segmentation_params.copy()
+
+            try:
+                current_image = self.image_controller.get_current_image()
+                if method in ["kmeans", "morphological", "watershed"]:
+                    # Usar segmentación avanzada
+                    segmented, properties = (
+                        self.manual_adjustments.advanced_segmentation(
+                            current_image, method, **params
+                        )
+                    )
+
+                    # Mostrar propiedades
+                    props_text = f"Segmentación {method}:\n"
+                    props_text += f"Regiones: {properties.get('num_regions', 0)}\n"
+                    props_text += (
+                        f"Área total: {properties.get('total_area', 0):.0f} px\n"
+                    )
+                    props_text += f"Perímetro total: {properties.get('total_perimeter', 0):.0f} px"
+
+                    self.show_message("Propiedades Segmentación", props_text)
+
+                else:
+                    # Segmentación básica
+                    segmented = self.manual_adjustments.segment_image(
+                        current_image, method, **params
+                    )
+                    properties = {}
+
+                self.image_controller.image_manager.update_image(
+                    segmented, f"Segmentación: {method}"
+                )
+                self.display_image()
+                self.update_histogram()
+                seg_window.destroy()
+
+            except Exception as e:
+                logger.error(f"Error en segmentación: {e}")
+                self.show_message("Error", f"Error en segmentación: {str(e)}")
+
+        tk.Button(
+            button_frame,
+            text="Aplicar Segmentación",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            font=(self.fonts["main"]["family"], 10, "bold"),
+            command=apply_segmentation,
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            button_frame,
+            text="Cancelar",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            command=seg_window.destroy,
+        ).pack(side="right", padx=5)
+
+    def _create_threshold_params(self, parent):
+        """Crea controles para parámetros de umbral manual"""
+        tk.Label(
+            parent,
+            text="Umbral:",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        ).pack(anchor="w")
+
+        threshold_var = tk.IntVar(value=128)
+        threshold_scale = tk.Scale(
+            parent,
+            from_=0,
+            to=255,
+            variable=threshold_var,
+            orient="horizontal",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            troughcolor=self.theme["accent"],
+        )
+        threshold_scale.pack(fill="x", pady=5)
+
+        self.segmentation_params["threshold"] = threshold_var.get()
+        threshold_scale.configure(
+            command=lambda v: self.segmentation_params.update({"threshold": int(v)})
+        )
+
+    def _create_adaptive_params(self, parent):
+        """Crea controles para parámetros de umbral adaptativo"""
+        tk.Label(
+            parent,
+            text="Tamaño de bloque:",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        ).pack(anchor="w")
+
+        block_size_var = tk.IntVar(value=11)
+        block_scale = tk.Scale(
+            parent,
+            from_=3,
+            to=21,
+            variable=block_size_var,
+            orient="horizontal",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            troughcolor=self.theme["accent"],
+        )
+        block_scale.pack(fill="x", pady=5)
+
+        self.segmentation_params["block_size"] = block_size_var.get()
+        block_scale.configure(
+            command=lambda v: self.segmentation_params.update({"block_size": int(v)})
+        )
+
+    def _create_kmeans_params(self, parent):
+        """Crea controles para parámetros de K-means"""
+        tk.Label(
+            parent,
+            text="Número de clusters (k):",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        ).pack(anchor="w")
+
+        k_var = tk.IntVar(value=3)
+        k_scale = tk.Scale(
+            parent,
+            from_=2,
+            to=8,
+            variable=k_var,
+            orient="horizontal",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            troughcolor=self.theme["accent"],
+        )
+        k_scale.pack(fill="x", pady=5)
+
+        self.segmentation_params["k"] = k_var.get()
+        k_scale.configure(
+            command=lambda v: self.segmentation_params.update({"k": int(v)})
+        )
+
+    def _create_morphological_params(self, parent):
+        """Crea controles para parámetros morfológicos"""
+        # Operación
+        tk.Label(
+            parent,
+            text="Operación:",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        ).pack(anchor="w")
+
+        op_var = tk.StringVar(value="erode")
+        op_frame = tk.Frame(parent, bg=self.theme["panel_bg"])
+        op_frame.pack(fill="x", pady=5)
+
+        for op in ["erode", "dilate", "open", "close"]:
+            tk.Radiobutton(
+                op_frame,
+                text=op.capitalize(),
+                variable=op_var,
+                value=op,
+                bg=self.theme["panel_bg"],
+                fg=self.theme["text_color"],
+                selectcolor=self.theme["accent"],
+            ).pack(side="left", padx=5)
+
+        # Tamaño del kernel
+        tk.Label(
+            parent,
+            text="Tamaño del kernel:",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        ).pack(anchor="w", pady=(10, 0))
+
+        kernel_var = tk.IntVar(value=3)
+        kernel_scale = tk.Scale(
+            parent,
+            from_=3,
+            to=15,
+            variable=kernel_var,
+            orient="horizontal",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            troughcolor=self.theme["accent"],
+        )
+        kernel_scale.pack(fill="x", pady=5)
+
+        self.segmentation_params["operation"] = op_var.get()
+        self.segmentation_params["kernel_size"] = kernel_var.get()
+
+        op_var.trace(
+            "w",
+            lambda *args: self.segmentation_params.update({"operation": op_var.get()}),
+        )
+        kernel_scale.configure(
+            command=lambda v: self.segmentation_params.update({"kernel_size": int(v)})
+        )
+
+    def _calculate_segmentation_properties(self, binary_image: np.ndarray) -> dict:
+        """Calcula propiedades de la segmentación (área, perímetro)"""
+        import cv2
+
+        contours, _ = cv2.findContours(
+            binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        properties = {
+            "num_regions": len(contours),
+            "total_area": 0,
+            "total_perimeter": 0,
+            "regions": [],
+        }
+
+        for i, contour in enumerate(contours):
+            area = cv2.contourArea(contour)
+            perimeter = cv2.arcLength(contour, True)
+
+            properties["total_area"] += area
+            properties["total_perimeter"] += perimeter
+            properties["regions"].append(
+                {"id": i + 1, "area": area, "perimeter": perimeter}
+            )
+
+        return properties

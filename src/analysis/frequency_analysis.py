@@ -1,9 +1,8 @@
-from typing import Any, Dict
+from io import BytesIO
 
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy.fftpack as fftpack
 from PIL import Image
 
 from src.helpers.logger import get_module_logger
@@ -15,153 +14,198 @@ class FrequencyAnalysis:
     def __init__(self):
         logger.info("FrequencyAnalysis inicializado")
 
-    def analyze_fft(self, image: Image.Image) -> Dict[str, Any]:
+    def analyze_fft(self, pil_image):
+        """Analiza la imagen en el dominio de frecuencia"""
         try:
-            img_array = np.array(image)
+            # Convertir a array numpy y escala de grises
+            if isinstance(pil_image, Image.Image):
+                img_array = np.array(pil_image.convert("L"))
+            else:
+                img_array = np.array(pil_image)
 
-            if len(img_array.shape) == 3:
-                img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+            # Calcular FFT
+            f = np.fft.fft2(img_array)
+            fshift = np.fft.fftshift(f)
+            magnitude_spectrum = 20 * np.log(np.abs(fshift) + 1)
 
-            fft_result = self._compute_fft(img_array)
+            # Análisis espectral
+            spectral_analysis = self._analyze_spectrum(magnitude_spectrum)
 
-            spectral_analysis = self._spectral_analysis(fft_result)
+            # Detectar artefactos
+            has_artifacts = self._detect_artifacts(magnitude_spectrum)
 
-            periodic_patterns = self._detect_periodic_patterns(fft_result)
-
-            self._visualize_fft_results(img_array, fft_result)
+            # Visualizar
+            self._visualize_fft(img_array, magnitude_spectrum)
 
             return {
+                "has_artifacts": has_artifacts,
                 "spectral_analysis": spectral_analysis,
-                "periodic_patterns": periodic_patterns,
-                "has_artifacts": periodic_patterns["has_periodic_patterns"],
+                "magnitude_spectrum": magnitude_spectrum.tolist(),
             }
 
         except Exception as e:
             logger.error(f"Error en análisis FFT: {e}")
-            return {}
+            return {"has_artifacts": False, "spectral_analysis": {}, "error": str(e)}
 
-    def _compute_fft(self, img_array: np.ndarray) -> np.ndarray:
-        rows, cols = img_array.shape
-        window = np.outer(np.hanning(rows), np.hanning(cols))
-        windowed_img = img_array * window
+    def _analyze_spectrum(self, magnitude_spectrum):
+        """Analiza el espectro de frecuencia"""
+        rows, cols = magnitude_spectrum.shape
+        crow, ccol = rows // 2, cols // 2
 
-        fft = fftpack.fft2(windowed_img)
-        fft_shifted = fftpack.fftshift(fft)  # Centrar las bajas frecuencias
+        # Definir regiones de frecuencia
+        center_region = magnitude_spectrum[crow - 30 : crow + 30, ccol - 30 : ccol + 30]
+        low_freq_region = magnitude_spectrum[
+            crow - 60 : crow + 60, ccol - 60 : ccol + 60
+        ]
+        high_freq_region = magnitude_spectrum
 
-        magnitude_spectrum = np.log(1 + np.abs(fft_shifted))
-
-        return magnitude_spectrum
-
-    def _spectral_analysis(self, fft_result: np.ndarray) -> Dict[str, float]:
-        mean_intensity = np.mean(fft_result)
-        std_intensity = np.std(fft_result)
-        max_intensity = np.max(fft_result)
-
-        center_y, center_x = fft_result.shape[0] // 2, fft_result.shape[1] // 2
-
-        low_freq_radius = min(center_x, center_y) // 4
-        low_freq_mask = self._create_circular_mask(
-            fft_result.shape, center_x, center_y, low_freq_radius
-        )
-        low_freq_energy = np.sum(fft_result[low_freq_mask])
-
-        high_freq_energy = np.sum(fft_result[~low_freq_mask])
-        total_energy = low_freq_energy + high_freq_energy
+        # Calcular ratios
+        total_energy = np.sum(magnitude_spectrum)
+        low_freq_energy = np.sum(low_freq_region) if total_energy > 0 else 0
+        high_freq_energy = total_energy - low_freq_energy
 
         return {
-            "mean_intensity": float(mean_intensity),
-            "std_intensity": float(std_intensity),
-            "max_intensity": float(max_intensity),
-            "low_freq_ratio": float(low_freq_energy / total_energy)
+            "low_freq_ratio": low_freq_energy / total_energy if total_energy > 0 else 0,
+            "high_freq_ratio": high_freq_energy / total_energy
             if total_energy > 0
             else 0,
-            "high_freq_ratio": float(high_freq_energy / total_energy)
-            if total_energy > 0
-            else 0,
-            "spectral_entropy": float(self._calculate_spectral_entropy(fft_result)),
+            "spectral_entropy": self._calculate_spectral_entropy(magnitude_spectrum),
+            "total_energy": float(total_energy),
         }
 
-    def _detect_periodic_patterns(self, fft_result: np.ndarray) -> Dict[str, Any]:
-        try:
-            threshold = np.mean(fft_result) + 2 * np.std(fft_result)
-            peaks = fft_result > threshold
+    def _calculate_spectral_entropy(self, magnitude_spectrum):
+        """Calcula la entropía espectral"""
+        # Normalizar el espectro
+        spectrum_normalized = magnitude_spectrum / np.sum(magnitude_spectrum)
+        # Calcular entropía
+        entropy = -np.sum(spectrum_normalized * np.log(spectrum_normalized + 1e-10))
+        return float(entropy)
 
-            center_y, center_x = fft_result.shape[0] // 2, fft_result.shape[1] // 2
-            exclusion_radius = min(center_x, center_y) // 8
+    def _detect_artifacts(self, magnitude_spectrum):
+        """Detecta artefactos periódicos en el espectro"""
+        # Buscar patrones repetitivos (líneas en el espectro)
+        rows, cols = magnitude_spectrum.shape
+        crow, ccol = rows // 2, cols // 2
 
-            center_mask = self._create_circular_mask(
-                fft_result.shape, center_x, center_y, exclusion_radius
-            )
-            significant_peaks = peaks & ~center_mask
+        # Excluir el centro (bajas frecuencias)
+        mask = np.ones_like(magnitude_spectrum)
+        mask[crow - 20 : crow + 20, ccol - 20 : ccol + 20] = 0
 
-            num_peaks = np.sum(significant_peaks)
+        masked_spectrum = magnitude_spectrum * mask
 
-            return {
-                "has_periodic_patterns": num_peaks > 5,
-                "num_significant_peaks": int(num_peaks),
-                "peak_intensity_threshold": float(threshold),
-            }
-        except Exception as e:
-            logger.warning(f"Error detectando patrones periódicos: {e}")
-            return {"has_periodic_patterns": False, "num_significant_peaks": 0}
+        # Buscar picos significativos fuera del centro
+        threshold = np.mean(masked_spectrum) + 2 * np.std(masked_spectrum)
+        high_peaks = np.sum(masked_spectrum > threshold)
 
-    def _create_circular_mask(self, shape, center_x, center_y, radius):
-        y, x = np.ogrid[: shape[0], : shape[1]]
-        mask = (x - center_x) ** 2 + (y - center_y) ** 2 <= radius**2
-        return mask
+        return high_peaks > 10  # Si hay más de 10 picos significativos
 
-    def _calculate_spectral_entropy(self, spectrum: np.ndarray) -> float:
-        spectrum_flat = spectrum.flatten()
-        spectrum_flat = spectrum_flat / np.sum(spectrum_flat)
+    def _visualize_fft(self, original, magnitude_spectrum):
+        """Visualiza la FFT"""
+        plt.figure(figsize=(12, 5))
 
-        spectrum_flat = spectrum_flat[spectrum_flat > 0]
-        entropy = -np.sum(spectrum_flat * np.log2(spectrum_flat))
+        plt.subplot(1, 2, 1)
+        plt.imshow(original, cmap="gray")
+        plt.title("Imagen Original")
+        plt.axis("off")
 
-        return entropy
-
-    def _visualize_fft_results(self, original: np.ndarray, fft_result: np.ndarray):
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-
-        # Imagen original
-        axes[0, 0].imshow(original, cmap="gray")
-        axes[0, 0].set_title("Imagen Original")
-        axes[0, 0].axis("off")
-
-        axes[0, 1].imshow(fft_result, cmap="hot")
-        axes[0, 1].set_title("Espectro de Frecuencia (FFT)")
-        axes[0, 1].axis("off")
-
-        axes[1, 0].hist(fft_result.flatten(), bins=50, alpha=0.7)
-        axes[1, 0].set_title("Distribución de Intensidades Espectrales")
-        axes[1, 0].set_xlabel("Intensidad")
-        axes[1, 0].set_ylabel("Frecuencia")
-
-        self._plot_radial_analysis(fft_result, axes[1, 1])
+        plt.subplot(1, 2, 2)
+        plt.imshow(magnitude_spectrum, cmap="hot")
+        plt.title("Espectro de Frecuencia (FFT)")
+        plt.axis("off")
 
         plt.tight_layout()
         plt.show(block=False)
 
-    def _plot_radial_analysis(self, fft_result: np.ndarray, ax):
-        center_y, center_x = fft_result.shape[0] // 2, fft_result.shape[1] // 2
-        max_radius = min(center_x, center_y)
+    def apply_frequency_filter(
+        self, pil_image, filter_type="high", cutoff=30, strength=1.0
+    ):
+        """Aplica filtro en dominio de frecuencia con parámetros configurables"""
+        try:
+            # Convertir a array
+            img_array = np.array(pil_image.convert("L"))
 
-        radial_profile = []
-        radii = range(1, max_radius)
+            # FFT
+            f = np.fft.fft2(img_array)
+            fshift = np.fft.fftshift(f)
 
-        for r in radii:
-            mask = self._create_circular_mask(fft_result.shape, center_x, center_y, r)
-            prev_mask = self._create_circular_mask(
-                fft_result.shape, center_x, center_y, r - 1
+            rows, cols = img_array.shape
+            crow, ccol = rows // 2, cols // 2
+
+            # Crear máscara según el tipo de filtro
+            if filter_type == "high":  # Pasa altas - elimina bajas frecuencias
+                mask = np.ones((rows, cols), np.float32)
+                cutoff_adj = int(cutoff * strength)
+                mask[
+                    crow - cutoff_adj : crow + cutoff_adj,
+                    ccol - cutoff_adj : ccol + cutoff_adj,
+                ] = 0
+
+            elif filter_type == "low":  # Pasa bajas - elimina altas frecuencias
+                mask = np.zeros((rows, cols), np.float32)
+                cutoff_adj = int(cutoff * strength)
+                mask[
+                    crow - cutoff_adj : crow + cutoff_adj,
+                    ccol - cutoff_adj : ccol + cutoff_adj,
+                ] = 1
+
+            elif filter_type == "band":  # Pasa banda
+                mask = np.zeros((rows, cols), np.float32)
+                outer_cutoff = int(cutoff * strength)
+                inner_cutoff = int(cutoff * 0.5 * strength)
+                mask[
+                    crow - outer_cutoff : crow + outer_cutoff,
+                    ccol - outer_cutoff : ccol + outer_cutoff,
+                ] = 1
+                mask[
+                    crow - inner_cutoff : crow + inner_cutoff,
+                    ccol - inner_cutoff : ccol + inner_cutoff,
+                ] = 0
+
+            elif filter_type == "band_stop":  # Rechaza banda
+                mask = np.ones((rows, cols), np.float32)
+                outer_cutoff = int(cutoff * strength)
+                inner_cutoff = int(cutoff * 0.5 * strength)
+                mask[
+                    crow - outer_cutoff : crow + outer_cutoff,
+                    ccol - outer_cutoff : ccol + outer_cutoff,
+                ] = 0
+                mask[
+                    crow - inner_cutoff : crow + inner_cutoff,
+                    ccol - inner_cutoff : ccol + inner_cutoff,
+                ] = 1
+
+            # Aplicar filtro
+            fshift_filtered = fshift * mask
+            f_ishift = np.fft.ifftshift(fshift_filtered)
+            img_back = np.fft.ifft2(f_ishift)
+            img_back = np.abs(img_back)
+
+            # Normalizar y convertir
+            img_back = np.clip(img_back, 0, 255).astype(np.uint8)
+
+            return Image.fromarray(img_back)
+
+        except Exception as e:
+            logger.error(f"Error aplicando filtro frecuencia: {e}")
+            return pil_image
+
+    def get_spectrum_image(self, pil_image):
+        """Obtiene la imagen del espectro para visualización"""
+        try:
+            img_array = np.array(pil_image.convert("L"))
+
+            # Calcular FFT
+            f = np.fft.fft2(img_array)
+            fshift = np.fft.fftshift(f)
+            magnitude_spectrum = 20 * np.log(np.abs(fshift) + 1)
+
+            # Normalizar para visualización
+            spectrum_normalized = cv2.normalize(
+                magnitude_spectrum, None, 0, 255, cv2.NORM_MINMAX
             )
-            ring_mask = mask & ~prev_mask
 
-            if np.any(ring_mask):
-                radial_profile.append(np.mean(fft_result[ring_mask]))
-            else:
-                radial_profile.append(0)
+            return Image.fromarray(spectrum_normalized.astype(np.uint8))
 
-        ax.plot(radii, radial_profile)
-        ax.set_title("Perfil Radial del Espectro")
-        ax.set_xlabel("Radio (píxeles)")
-        ax.set_ylabel("Intensidad Promedio")
-        ax.grid(True, alpha=0.3)
+        except Exception as e:
+            logger.error(f"Error obteniendo espectro: {e}")
+            return pil_image

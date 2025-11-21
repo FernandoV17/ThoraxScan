@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from src.analysis.frequency_analysis import FrequencyAnalysis
-from src.analysis.patology_detector import PatologyDetector
 from src.helpers.logger import get_module_logger
 
 logger = get_module_logger(__name__)
@@ -13,14 +12,15 @@ logger = get_module_logger(__name__)
 
 class AnalysisController:
     def __init__(self):
-        self.patology_detector = PatologyDetector()
-        logger.info("AnalysisController inicializado")
         self.frequency_analyzer = FrequencyAnalysis()
+        logger.info("AnalysisController inicializado")
 
     def detect_anomalies(self, pil_image):
+        """
+        Segmentación por K-Means y Otsu para el PIA.
+        """
         try:
             img_np = np.array(pil_image)
-
             if len(img_np.shape) == 2:
                 img_rgb = cv2.cvtColor(img_np, cv2.COLOR_GRAY2RGB)
                 img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
@@ -36,6 +36,7 @@ class AnalysisController:
                 blurred_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
             )
 
+            # Segmentación K-Means
             pixel_values = img.reshape((-1, 3))
             pixel_values = np.float32(pixel_values)
             k = 3
@@ -153,7 +154,6 @@ RECOMENDACIÓN: Este análisis es preliminar. Consulte con radiólogo."""
             return f"Error en análisis de fracturas: {str(e)}"
 
     def detect_cardiomegaly(self, pil_image):
-        """Detección de cardiomegalia (ratio cardiotorácico)"""
         try:
             img_np = np.array(pil_image)
 
@@ -182,7 +182,6 @@ RECOMENDACIÓN: Este análisis es preliminar. Consulte con radiólogo."""
             max_area = max(contour_areas) if contour_areas else 0
             area_ratio = max_area / total_area if total_area > 0 else 0
 
-            # Mostrar resultados
             plt.figure(figsize=(10, 4))
 
             plt.subplot(1, 2, 1)
@@ -198,7 +197,6 @@ RECOMENDACIÓN: Este análisis es preliminar. Consulte con radiólogo."""
             plt.tight_layout()
             plt.show(block=False)
 
-            # Evaluación simple basada en área
             if area_ratio > 0.3:
                 cardiomegaly_status = "POSIBLE CARDIOMEGALIA"
                 recommendation = "Ratio cardiotorácico elevado. Consultar urgente."
@@ -220,61 +218,6 @@ NOTA: Análisis automático basado en áreas. Para diagnóstico preciso consulte
             logger.error(f"Error en análisis de cardiomegalia: {e}")
             return f"Error en análisis de cardiomegalia: {str(e)}"
 
-    def detect_consolidation(self, image):
-        try:
-            result = self.patology_detector.detect_consolidation(image)
-            return self._format_patology_result("Consolidación Pulmonar", result)
-        except Exception as e:
-            logger.error(f"Error en detección de consolidación: {e}")
-            return f"Error en análisis: {str(e)}"
-
-    def detect_opacities(self, image):
-        try:
-            result = self.patology_detector.detect_opacities(image)
-            return self._format_patology_result("Opacidades", result)
-        except Exception as e:
-            logger.error(f"Error en detección de opacidades: {e}")
-            return f"Error en análisis: {str(e)}"
-
-    def _format_patology_result(self, title: str, result: Dict[str, Any]) -> str:
-        if result.get("detected", False):
-            confidence = result.get("confidence", 0) * 100
-            methods = ", ".join(result.get("methods_used", []))
-
-            return f"""🔍 {title.upper()} - DETECTADA
-
-Confianza: {confidence:.1f}%
-Métodos utilizados: {methods}
-
-Características encontradas:
-{self._format_details(result.get("details", {}))}
-
-RECOMENDACIÓN: Consultar con especialista para confirmación."""
-        else:
-            return f"""{title.upper()} - NO DETECTADA
-
-Análisis realizado con {len(result.get("methods_used", []))} métodos.
-
-No se encontraron signos evidentes de {title.lower()} en la imagen.
-
-NOTA: Este es un análisis automático. Siempre consulte con un radiólogo."""
-
-    def _format_details(self, details: Dict[str, Any]) -> str:
-        """Formatea los detalles del análisis"""
-        formatted = []
-        for key, value in details.items():
-            if isinstance(value, dict):
-                sub_details = []
-                for k, v in value.items():
-                    if isinstance(v, float):
-                        sub_details.append(f"  {k}: {v:.3f}")
-                    else:
-                        sub_details.append(f"  {k}: {v}")
-                formatted.append(f"{key}:\n" + "\n".join(sub_details))
-            else:
-                formatted.append(f"{key}: {value}")
-        return "\n".join(formatted)
-
     def analyze_frequency_domain(self, pil_image):
         try:
             result = self.frequency_analyzer.analyze_fft(pil_image)
@@ -288,22 +231,41 @@ NOTA: Este es un análisis automático. Siempre consulte con un radiólogo."""
 
             spectral = result.get("spectral_analysis", {})
 
-            return f"""📡 ANÁLISIS EN DOMINIO DE FRECUENCIA
+            return f"""ANÁLISIS EN DOMINIO DE FRECUENCIA
 
-{artifact_status}
+    {artifact_status}
 
-Análisis Espectral:
-• Ratio Bajas Frecuencias: {spectral.get("low_freq_ratio", 0):.3f}
-• Ratio Altas Frecuencias: {spectral.get("high_freq_ratio", 0):.3f}
-• Entropía Espectral: {spectral.get("spectral_entropy", 0):.3f}
+    Análisis Espectral:
+    • Ratio Bajas Frecuencias: {spectral.get("low_freq_ratio", 0):.3f}
+    • Ratio Altas Frecuencias: {spectral.get("high_freq_ratio", 0):.3f}
+    • Entropía Espectral: {spectral.get("spectral_entropy", 0):.3f}
+    • Energía Total: {spectral.get("total_energy", 0):.0f}
 
-Patrones Periódicos:
-• Picos significativos: {result.get("periodic_patterns", {}).get("num_significant_peaks", 0)}
+    {recommendation}
 
-{recommendation}
-
-NOTA: Las visualizaciones espectrales se muestran en ventana externa."""
+    NOTA: Las visualizaciones espectrales se muestran en ventana externa."""
 
         except Exception as e:
             logger.error(f"Error en análisis FFT: {e}")
             return f"Error en análisis de frecuencia: {str(e)}"
+
+    def apply_frequency_filter(
+        self, pil_image, filter_type="high", cutoff=30, strength=1.0
+    ):
+        """Aplica filtro en dominio de frecuencia"""
+        try:
+            filtered_image = self.frequency_analyzer.apply_frequency_filter(
+                pil_image, filter_type, cutoff, strength
+            )
+            return filtered_image
+        except Exception as e:
+            logger.error(f"Error aplicando filtro frecuencia: {e}")
+            return pil_image
+
+    def get_frequency_spectrum(self, pil_image):
+        """Obtiene la imagen del espectro de frecuencia"""
+        try:
+            return self.frequency_analyzer.get_spectrum_image(pil_image)
+        except Exception as e:
+            logger.error(f"Error obteniendo espectro: {e}")
+            return pil_image

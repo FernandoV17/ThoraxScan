@@ -500,45 +500,6 @@ class MainWindow:
         text.insert("1.0", str(result))
         text.config(state="disabled")
 
-    def on_file(self):
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Abrir imagen...", command=self.on_open_image)
-        menu.add_separator()
-        menu.add_command(label="Guardar imagen", command=self.on_save_image)
-        menu.add_command(label="Exportar como...", command=self.on_export_image)
-        menu.add_separator()
-        menu.add_command(label="Salir", command=self.root.quit)
-        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
-
-    def on_processing(self):
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Auto-mejorar", command=self.on_auto_enhance)
-        menu.add_separator()
-        menu.add_command(
-            label="Ajustar brillo/contraste", command=self.on_adjust_brightness
-        )
-        menu.add_command(label="Filtros", command=self.on_filters_menu)
-        menu.add_separator()
-        menu.add_command(label="Restaurar original", command=self.on_restore)
-        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
-
-    def on_analysis(self):
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Segmentacion", command=self.Segmentacion)
-        menu.add_command(
-            label="Detección de fracturas", command=self.on_detect_fractures
-        )
-        menu.add_command(label="Cardiomegalia", command=self.on_detect_heart)
-        menu.add_separator()
-        menu.add_command(label="Mostrar histograma", command=self.on_show_histogram)
-        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
-
-    def on_settings(self):
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Tema claro/oscuro", command=self.on_toggle_theme)
-        menu.add_command(label="Configuración", command=self.on_config)
-        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
-
     def show_message(self, title: str, message: str):
         if title.lower() == "error":
             messagebox.showerror(title, message)
@@ -977,6 +938,112 @@ class MainWindow:
         }
         return descriptions.get(method, "Método de normalización OpenCV")
 
+    def on_fft_analysis(self):
+        if self.image_controller.has_image():
+            image = self.image_controller.get_current_image()
+            result = self.analysis_controller.analyze_frequency_domain(image)
+            self.show_analysis_result("Análisis FFT - Dominio de Frecuencia", result)
+        else:
+            self.show_message("Advertencia", "Primero carga una imagen")
+
+    def on_file(self):
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Abrir imagen...", command=self.on_open_image)
+        menu.add_separator()
+        menu.add_command(label="Guardar imagen", command=self.on_save_image)
+        menu.add_command(label="Exportar como...", command=self.on_export_image)
+        menu.add_separator()
+        menu.add_command(label="Salir", command=self.root.quit)
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
+
+    def on_processing(self):
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Auto-mejorar", command=self.on_auto_enhance)
+        menu.add_separator()
+        menu.add_command(
+            label="Ajustar brillo/contraste", command=self.on_adjust_brightness
+        )
+        menu.add_command(label="Filtros", command=self.on_filters_menu)
+        menu.add_separator()
+        menu.add_command(label="Restaurar original", command=self.on_restore)
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
+
+    def on_analysis(self):
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(
+            label="Detección de anomalías", command=self.on_detect_anomalies
+        )
+        menu.add_command(
+            label="Detección de fracturas", command=self.on_detect_fractures
+        )
+        menu.add_command(label="Cardiomegalia", command=self.on_detect_heart)
+        menu.add_command(
+            label="Análisis FFT (Frecuencia)",
+            command=self.on_fft_analysis,
+        )
+        menu.add_command(label="Segmentación", command=self.on_segmentation)
+        menu.add_command(label="Análisis de texturas", command=self.on_texture_analysis)
+        menu.add_separator()
+        menu.add_command(label="Mostrar histograma", command=self.on_show_histogram)
+
+        try:
+            menu.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
+        finally:
+            menu.grab_release()
+
+    def on_settings(self):
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Tema claro/oscuro", command=self.on_toggle_theme)
+        menu.add_command(label="Configuración", command=self.on_config)
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
+
+
+def on_apply_filter(self, filter_type: str, params=None):
+    if params is None:
+        params = self.get_filter_parameters(filter_type)
+    self.image_controller.apply_filter(filter_type, params)
+
+    def get_filter_parameters(self, filter_type):
+        param_window = tk.Toplevel(self.root)
+        param_window.title(f"Parámetros - {filter_type}")
+        param_window.geometry("300x200")
+
+        params = {}
+
+        if filter_type == "brightness_contrast":
+            brightness_var = tk.DoubleVar(value=1.0)
+            contrast_var = tk.DoubleVar(value=1.0)
+
+            tk.Label(param_window, text="Brillo:").pack()
+            tk.Scale(
+                param_window,
+                from_=0.1,
+                to=3.0,
+                resolution=0.1,
+                variable=brightness_var,
+                orient="horizontal",
+            ).pack()
+
+            tk.Label(param_window, text="Contraste:").pack()
+            tk.Scale(
+                param_window,
+                from_=0.1,
+                to=3.0,
+                resolution=0.1,
+                variable=contrast_var,
+                orient="horizontal",
+            ).pack()
+
+            def apply_params():
+                params["brightness"] = brightness_var.get()
+                params["contrast"] = contrast_var.get()
+                param_window.destroy()
+                self.image_controller.apply_filter(filter_type, params)
+
+            tk.Button(param_window, text="Aplicar", command=apply_params).pack()
+
+        return params
+
     def show_welcome_message(self):
         WelcomePopup(self.root, self.theme, self.fonts)
 
@@ -989,3 +1056,230 @@ class MainWindow:
 
     def on_levels_adjust(self):
         self.show_message("Info", "Ajuste de niveles en desarrollo")
+
+    def on_fft_analysis(self):
+        """Interfaz completa de análisis Fourier"""
+        if not self.image_controller.has_image():
+            self.show_message("Advertencia", "Primero carga una imagen")
+            return
+
+        fft_window = tk.Toplevel(self.root)
+        fft_window.title("Análisis Fourier - Dominio de Frecuencia")
+        fft_window.geometry("500x600")
+        fft_window.configure(bg=self.theme["panel_bg"])
+
+        main_frame = tk.Frame(fft_window, bg=self.theme["panel_bg"], padx=20, pady=20)
+        main_frame.pack(fill="both", expand=True)
+
+        # Título
+        tk.Label(
+            main_frame,
+            text="Análisis en Dominio de Frecuencia",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            font=(self.fonts["title"]["family"], 14, "bold"),
+        ).pack(anchor="w", pady=(0, 20))
+
+        # Sección de análisis
+        analysis_frame = tk.LabelFrame(
+            main_frame,
+            text=" Análisis Espectral ",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            font=(self.fonts["main"]["family"], 10, "bold"),
+        )
+        analysis_frame.pack(fill="x", pady=(0, 15))
+
+        tk.Button(
+            analysis_frame,
+            text="🔍 Analizar Espectro FFT",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            font=(self.fonts["main"]["family"], 10),
+            command=self._run_fft_analysis,
+            width=20,
+        ).pack(pady=10)
+
+        # Sección de filtros de frecuencia
+        filter_frame = tk.LabelFrame(
+            main_frame,
+            text=" Filtros de Frecuencia ",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            font=(self.fonts["main"]["family"], 10, "bold"),
+        )
+        filter_frame.pack(fill="x", pady=(0, 15))
+
+        # Tipo de filtro
+        tk.Label(
+            filter_frame,
+            text="Tipo de Filtro:",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        ).pack(anchor="w", pady=(5, 0))
+
+        filter_type_var = tk.StringVar(value="high")
+        filter_types = [
+            ("Pasa Altas (Enfocar)", "high"),
+            ("Pasa Bajas (Suavizar)", "low"),
+            ("Pasa Banda", "band"),
+            ("Rechaza Banda", "band_stop"),
+        ]
+
+        filter_type_frame = tk.Frame(filter_frame, bg=self.theme["panel_bg"])
+        filter_type_frame.pack(fill="x", pady=5)
+
+        for text, value in filter_types:
+            tk.Radiobutton(
+                filter_type_frame,
+                text=text,
+                variable=filter_type_var,
+                value=value,
+                bg=self.theme["panel_bg"],
+                fg=self.theme["text_color"],
+                selectcolor=self.theme["accent"],
+            ).pack(side="left", padx=10)
+
+        # Parámetros del filtro
+        params_frame = tk.Frame(filter_frame, bg=self.theme["panel_bg"])
+        params_frame.pack(fill="x", pady=10)
+
+        # Cutoff frequency
+        tk.Label(
+            params_frame,
+            text="Frecuencia de Corte:",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        ).grid(row=0, column=0, sticky="w", pady=5)
+
+        cutoff_var = tk.IntVar(value=30)
+        cutoff_scale = tk.Scale(
+            params_frame,
+            from_=10,
+            to=100,
+            variable=cutoff_var,
+            orient="horizontal",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            troughcolor=self.theme["accent"],
+            length=200,
+        )
+        cutoff_scale.grid(row=0, column=1, sticky="ew", padx=10, pady=5)
+
+        # Strength
+        tk.Label(
+            params_frame,
+            text="Fuerza del Filtro:",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        ).grid(row=1, column=0, sticky="w", pady=5)
+
+        strength_var = tk.DoubleVar(value=1.0)
+        strength_scale = tk.Scale(
+            params_frame,
+            from_=0.1,
+            to=2.0,
+            resolution=0.1,
+            variable=strength_var,
+            orient="horizontal",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            troughcolor=self.theme["accent"],
+            length=200,
+        )
+        strength_scale.grid(row=1, column=1, sticky="ew", padx=10, pady=5)
+
+        params_frame.columnconfigure(1, weight=1)
+
+        # Botones de acción
+        button_frame = tk.Frame(main_frame, bg=self.theme["panel_bg"])
+        button_frame.pack(fill="x", pady=20)
+
+        def apply_frequency_filter():
+            try:
+                current_image = self.image_controller.get_current_image()
+                filtered_image = self.analysis_controller.apply_frequency_filter(
+                    current_image,
+                    filter_type_var.get(),
+                    cutoff_var.get(),
+                    strength_var.get(),
+                )
+
+                self.image_controller.image_manager.update_image(
+                    filtered_image, f"Filtro Frecuencia: {filter_type_var.get()}"
+                )
+                self.display_image()
+                self.update_histogram()
+
+                self.show_message(
+                    "Éxito",
+                    f"Filtro {filter_type_var.get()} aplicado correctamente\n"
+                    f"Cutoff: {cutoff_var.get()}, Fuerza: {strength_var.get():.1f}",
+                )
+
+            except Exception as e:
+                logger.error(f"Error aplicando filtro frecuencia: {e}")
+                self.show_message("Error", f"Error aplicando filtro: {str(e)}")
+
+        def show_spectrum():
+            try:
+                current_image = self.image_controller.get_current_image()
+                spectrum_image = self.analysis_controller.get_frequency_spectrum(
+                    current_image
+                )
+
+                # Mostrar en ventana separada
+                spectrum_window = tk.Toplevel(self.root)
+                spectrum_window.title("Espectro de Frecuencia")
+                spectrum_window.geometry("400x400")
+
+                # Convertir para mostrar en tkinter
+                from PIL import ImageTk
+
+                spectrum_photo = ImageTk.PhotoImage(spectrum_image)
+
+                spectrum_label = tk.Label(spectrum_window, image=spectrum_photo)
+                spectrum_label.image = spectrum_photo  # Mantener referencia
+                spectrum_label.pack(padx=10, pady=10)
+
+                tk.Label(
+                    spectrum_window,
+                    text="Espectro de Frecuencia (FFT Magnitude)",
+                    font=("Arial", 10, "bold"),
+                ).pack(pady=(0, 10))
+
+            except Exception as e:
+                logger.error(f"Error mostrando espectro: {e}")
+                self.show_message("Error", f"Error mostrando espectro: {str(e)}")
+
+        tk.Button(
+            button_frame,
+            text="Aplicar Filtro",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            font=(self.fonts["main"]["family"], 10, "bold"),
+            command=apply_frequency_filter,
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            button_frame,
+            text="Ver Espectro",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            command=show_spectrum,
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            button_frame,
+            text="Cerrar",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            command=fft_window.destroy,
+        ).pack(side="right", padx=5)
+
+    def _run_fft_analysis(self):
+        """Ejecuta el análisis FFT y muestra resultados"""
+        if self.image_controller.has_image():
+            image = self.image_controller.get_current_image()
+            result = self.analysis_controller.analyze_frequency_domain(image)
+            self.show_analysis_result("Análisis FFT - Dominio de Frecuencia", result)
