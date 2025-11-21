@@ -1,9 +1,11 @@
 import json
 import os
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 
 import numpy as np
+import threading
+from tkinter import ttk
 from PIL import Image, ImageTk
 
 from src.helpers.logger import get_module_logger
@@ -43,6 +45,7 @@ class MainWindow:
         self.guide_lines = []
         self.mouse_x = 0
         self.mouse_y = 0
+        self.preview_image = None
 
         self.setup_ui()
         logger.info("MainWindow inicializado correctamente")
@@ -226,26 +229,158 @@ class MainWindow:
         )
         right_title.pack(anchor="ne", pady=(0, 15))
 
-        analysis_buttons = [
-            ("Segmentacion", self.Segmentacion),
-            ("Detección de Fracturas", self.on_detect_fractures),
-            ("Cardiomegalia", self.on_detect_heart),
-        ]
+        # --- Segmentación (Manual) Section ---
+        seg_frame = tk.LabelFrame(
+            self.right_panel,
+            text="Segmentación (Manual)",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            font=(self.fonts["main"]["family"], 10, "bold"),
+)
+        seg_frame.pack(fill="x", pady=4)
 
-        for text, command in analysis_buttons:
-            btn = tk.Button(
-                self.right_panel,
-                text=text,
-                bg=self.theme["accent"],
-                fg=self.theme["text_color"],
-                bd=0,
-                padx=10,
-                pady=10,
-                font=(self.fonts["main"]["family"], 10),
-                cursor="hand2",
-                command=command,
-            )
-            btn.pack(fill="x", pady=4)
+        # Umbral: Adaptativo (opens slider window) and Otsu (automatic)
+        umbral_frame = tk.Frame(seg_frame, bg=self.theme["panel_bg"])
+        umbral_frame.pack(fill="x", pady=(4, 2), padx=6)
+
+        tk.Label(
+            umbral_frame,
+            text="Umbral:",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            font=(self.fonts["main"]["family"], 10, "bold"),
+        ).pack(anchor="w")
+
+        tk.Button(
+            umbral_frame,
+            text="Adaptativo...",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            bd=0,
+            padx=8,
+            pady=6,
+            font=(self.fonts["main"]["family"], 9),
+            cursor="hand2",
+            command=self.open_adaptive_segmentation_window,
+        ).pack(fill="x", pady=2)
+
+        tk.Button(
+            umbral_frame,
+            text="Binary...",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            bd=0,
+            padx=8,
+            pady=6,
+            font=(self.fonts["main"]["family"], 9),
+            cursor="hand2",
+            command=self.open_binary_threshold_window,
+        ).pack(fill="x", pady=2)
+
+        tk.Button(
+            umbral_frame,
+            text="Área y Perímetro",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            bd=0,
+            padx=8,
+            pady=6,
+            font=(self.fonts["main"]["family"], 9),
+            cursor="hand2",
+            command=self.on_current_threshold_stats,
+        ).pack(fill="x", pady=2)
+
+        tk.Button(
+            umbral_frame,
+            text="Otsu",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            bd=0,
+            padx=8,
+            pady=6,
+            font=(self.fonts["main"]["family"], 9),
+            cursor="hand2",
+            command=lambda: self.apply_segmentation("otsu"),
+        ).pack(fill="x", pady=2)
+
+        # Cluster (semi-automática - ask for k)
+        tk.Button(
+            seg_frame,
+            text="Cluster (k-means)",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            bd=0,
+            padx=8,
+            pady=6,
+            font=(self.fonts["main"]["family"], 9),
+            cursor="hand2",
+            command=self.on_cluster_segmentation,
+        ).pack(fill="x", pady=(6, 2), padx=6)
+
+        tk.Button(
+            seg_frame,
+            text="Área y Perímetro (Clusters)",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            bd=0,
+            padx=8,
+            pady=6,
+            font=(self.fonts["main"]["family"], 9),
+            cursor="hand2",
+            command=self.on_cluster_stats,
+        ).pack(fill="x", pady=(6, 2), padx=6)
+
+        # Morfológica
+        morph_frame = tk.Frame(seg_frame, bg=self.theme["panel_bg"])
+        morph_frame.pack(fill="x", pady=(6, 4), padx=6)
+
+        tk.Label(
+            morph_frame,
+            text="Morfológica:",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            font=(self.fonts["main"]["family"], 10, "bold"),
+        ).pack(anchor="w")
+
+        tk.Button(
+            morph_frame,
+            text="Erosionar",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            bd=0,
+            padx=8,
+            pady=6,
+            font=(self.fonts["main"]["family"], 9),
+            cursor="hand2",
+            command=lambda: self.apply_segmentation("erode"),
+        ).pack(fill="x", pady=2)
+
+        tk.Button(
+            morph_frame,
+            text="Dilatar",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            bd=0,
+            padx=8,
+            pady=6,
+            font=(self.fonts["main"]["family"], 9),
+            cursor="hand2",
+            command=lambda: self.apply_segmentation("dilate"),
+        ).pack(fill="x", pady=2)
+
+        # --- Detección fracturas (Automático) ---
+        tk.Button(
+            self.right_panel,
+            text="Detección de Fracturas (Automático)",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            bd=0,
+            padx=10,
+            pady=10,
+            font=(self.fonts["main"]["family"], 10),
+            cursor="hand2",
+            command=self.on_detect_fractures,
+        ).pack(fill="x", pady=(8, 4))
 
         self.center_panel = tk.Frame(
             main_frame, bg=self.theme["global_bg"], padx=10, pady=10
@@ -407,7 +542,11 @@ class MainWindow:
             self.show_message("Éxito" if success else "Error", message)
 
     def display_image(self):
-        current_image = self.image_controller.get_current_image()
+        # If a preview image is set, display it instead of current image
+        if hasattr(self, "preview_image") and self.preview_image is not None:
+            current_image = self.preview_image
+        else:
+            current_image = self.image_controller.get_current_image()
         if current_image:
             try:
                 canvas_width = self.canvas.winfo_width()
@@ -500,6 +639,44 @@ class MainWindow:
         text.insert("1.0", str(result))
         text.config(state="disabled")
 
+    def on_file(self):
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Abrir imagen...", command=self.on_open_image)
+        menu.add_separator()
+        menu.add_command(label="Guardar imagen", command=self.on_save_image)
+        menu.add_command(label="Exportar como...", command=self.on_export_image)
+        menu.add_separator()
+        menu.add_command(label="Salir", command=self.root.quit)
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
+
+    def on_processing(self):
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Auto-mejorar", command=self.on_auto_enhance)
+        menu.add_separator()
+        menu.add_command(
+            label="Ajustar brillo/contraste", command=self.on_adjust_brightness
+        )
+        menu.add_command(label="Filtros", command=self.on_filters_menu)
+        menu.add_separator()
+        menu.add_command(label="Restaurar original", command=self.on_restore)
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
+
+    def on_analysis(self):
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Segmentacion", command=self.Segmentacion)
+        menu.add_command(
+            label="Detección de fracturas", command=self.on_detect_fractures
+        )
+        menu.add_separator()
+        menu.add_command(label="Mostrar histograma", command=self.on_show_histogram)
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
+
+    def on_settings(self):
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Tema claro/oscuro", command=self.on_toggle_theme)
+        menu.add_command(label="Configuración", command=self.on_config)
+        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
+
     def show_message(self, title: str, message: str):
         if title.lower() == "error":
             messagebox.showerror(title, message)
@@ -542,12 +719,17 @@ class MainWindow:
         ]
 
         for name, method in methods:
+            if method == "threshold":
+                cmd = lambda m=method: self.open_manual_threshold_window(seg_window)
+            else:
+                cmd = lambda m=method: self.apply_segmentation(m, seg_window)
+
             tk.Button(
                 seg_window,
                 text=name,
                 bg=self.theme["accent"],
                 fg=self.theme["text_color"],
-                command=lambda m=method: self.apply_segmentation(m, seg_window),
+                command=cmd,
             ).pack(fill="x", padx=20, pady=2)
 
     def on_texture_analysis(self):
@@ -563,19 +745,717 @@ class MainWindow:
             "- Filtros Gabor",
         )
 
-    def apply_segmentation(self, method: str, window: tk.Toplevel):
+    def apply_segmentation(self, method: str, window: tk.Toplevel = None, **params):
+        # New flow: accept optional kwargs passed from callers and forward them
+        def _log_and_close(win):
+            if isinstance(win, tk.Toplevel):
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+
         try:
             current_image = self.image_controller.get_current_image()
-            if current_image and hasattr(self.manual_adjustments, "segment_image"):
-                segmented = self.manual_adjustments.segment_image(current_image, method)
+            if not current_image:
+                self.show_message("Advertencia", "Primero carga una imagen")
+                _log_and_close(window)
+                return
+
+            if not hasattr(self.manual_adjustments, "segment_image"):
+                logger.error("ManualAdjustments.segment_image no disponible")
+                _log_and_close(window)
+                return
+
+            # Collect any params passed via closure by callers (they call with kwargs)
+            # Python will forward kwargs automatically when callers use keyword args.
+            # Here we call segment_image with whatever kwargs were passed to apply_segmentation.
+            import inspect
+
+            # Build kwargs passed to this function (exclude method and window)
+            frame = inspect.currentframe()
+            try:
+                # get caller locals/vars is complicated; simpler: rely on callers to pass kwargs explicitly
+                pass
+            finally:
+                del frame
+
+            # Call segment_image forwarding kwargs
+            try:
+                segmented = self.manual_adjustments.segment_image(
+                    current_image, method, **params
+                )
+            except Exception as e:
+                logger.error(f"Error ejecutando segment_image: {e}")
+                _log_and_close(window)
+                return
+
+            if segmented is None:
+                logger.error("segment_image devolvió None")
+                _log_and_close(window)
+                return
+
+            # Update image manager with the segmented result
+            try:
                 self.image_controller.image_manager.update_image(
                     segmented, f"Segmentación: {method}"
                 )
                 self.display_image()
                 self.update_histogram()
-                window.destroy()
+            except Exception as e:
+                logger.error(f"Error actualizando imagen segmentada: {e}")
+
+            _log_and_close(window)
         except Exception as e:
-            logger.error(f"Error en segmentación: {e}")
+            logger.error(f"Error preparing segmentation: {e}")
+        
+
+    def open_adaptive_segmentation_window(self):
+        if not self.image_controller.has_image():
+            self.show_message("Advertencia", "Primero carga una imagen")
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("Umbral Adaptativo")
+        win.geometry("360x160")
+        win.configure(bg=self.theme["panel_bg"])
+
+        tk.Label(
+            win,
+            text="Valor Umbral (tamaño de bloque)",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        ).pack(anchor="w", padx=12, pady=(10, 2))
+        # Determine slider max using current image dimensions so block size can span full useful range
+        base_image = self.image_controller.get_current_image()
+        if base_image:
+            img_w, img_h = base_image.size
+        else:
+            img_w, img_h = 101, 101
+
+        max_block = max(3, min(img_w, img_h))
+        # Ensure max_block is odd to make it valid for adaptiveThreshold; if even, reduce by 1
+        if max_block % 2 == 0:
+            max_block -= 1
+        if max_block < 3:
+            max_block = 3
+
+        # Start slider at 0 for user clarity; map to valid block when using
+        block_var = tk.IntVar(value=0)
+
+        def _on_block_change(v):
+            try:
+                val = int(float(v))
+            except Exception:
+                val = block_var.get()
+
+            # enforce odd
+            if val < 3:
+                # don't change slider UI value, but use 3 for preview/processing
+                eff = 3
+            else:
+                eff = val if val % 2 == 1 else (val + 1 if val + 1 <= max_block else val - 1)
+                # if we adjusted to odd, update slider to reflect
+                if eff != val:
+                    block_var.set(eff)
+
+            # Live preview: apply adaptive segmentation on current image
+            try:
+                base = self.image_controller.get_current_image()
+                if base and hasattr(self.manual_adjustments, "segment_image"):
+                    # Create a low-resolution copy for fast preview
+                    max_preview_dim = 256
+                    bw, bh = base.size
+                    scale = min(1.0, max_preview_dim / max(bw, bh))
+                    if scale < 1.0:
+                        sw = max(3, int(bw * scale))
+                        sh = max(3, int(bh * scale))
+                        small = base.copy().resize((sw, sh), Image.Resampling.LANCZOS)
+                    else:
+                        small = base.copy()
+                        sw, sh = small.size
+
+                    # Map block size to small image scale to keep behavior similar
+                    if bw > 0:
+                        mapped = max(3, int(round(eff * (sw / bw))))
+                    else:
+                        mapped = eff
+                    mapped = mapped if mapped % 2 == 1 else mapped + 1
+                    if mapped < 3:
+                        mapped = 3
+
+                    # Run segmentation on the small image for speed
+                    preview_small = self.manual_adjustments.segment_image(
+                        small, "adaptive", block_size=int(mapped)
+                    )
+
+                    # Upscale preview mask back to full size using nearest neighbor
+                    try:
+                        upscaled = preview_small.resize((bw, bh), Image.Resampling.NEAREST)
+                    except Exception:
+                        upscaled = preview_small.resize((bw, bh))
+
+                    self.preview_image = upscaled
+                    self.display_image()
+            except Exception as e:
+                logger.error(f"Error en vista previa adaptativa: {e}")
+
+        # Enforce minimum of 3 for adaptive threshold block size (OpenCV requirement)
+        block_scale = tk.Scale(
+            win,
+            from_=3,
+            to=max_block,
+            resolution=1,
+            orient="horizontal",
+            variable=block_var,
+            command=_on_block_change,
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            length=300,
+        )
+        block_scale.pack(padx=12)
+        # Initialize at minimum valid block size and trigger one preview
+        try:
+            block_var.set(3)
+            block_scale.set(3)
+            _on_block_change("3")
+        except Exception:
+            pass
+
+        def apply_adaptive():
+            block = block_var.get()
+            try:
+                result = self.manual_adjustments.segment_image(
+                    self.image_controller.get_current_image(), "adaptive", block_size=int(block)
+                )
+                # Commit
+                self.preview_image = None
+                try:
+                    self.image_controller.image_manager.update_image(
+                        result, f"Umbral adaptativo: {int(block)}"
+                    )
+                    self.image_controller._emit("image_updated")
+                except Exception as e:
+                    logger.error(f"Error guardando imagen adaptativa: {e}")
+            except Exception as e:
+                logger.error(f"Error aplicando umbral adaptativo: {e}")
+            finally:
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+
+        btn_frame = tk.Frame(win, bg=self.theme["panel_bg"])
+        btn_frame.pack(fill="x", pady=10)
+
+        tk.Button(
+            btn_frame,
+            text="Aplicar",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            command=apply_adaptive,
+        ).pack(side="left", padx=12)
+
+        def _cancel_adaptive():
+            try:
+                self.preview_image = None
+                self.display_image()
+            except Exception as e:
+                logger.error(f"Error cancelando vista previa adaptativa: {e}")
+            finally:
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+
+        tk.Button(
+            btn_frame,
+            text="Cancelar",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            command=_cancel_adaptive,
+        ).pack(side="right", padx=12)
+
+    def open_manual_threshold_window(self, parent_window: tk.Toplevel = None):
+        if not self.image_controller.has_image():
+            self.show_message("Advertencia", "Primero carga una imagen")
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("Umbral Manual")
+        win.geometry("360x140")
+        win.configure(bg=self.theme["panel_bg"])
+
+        # Slider label will show actual computed range below (updated after computing max)
+        label_text_var = tk.StringVar()
+        label_text_var.set("Selecciona el valor de umbral:")
+        thr_label = tk.Label(
+            win,
+            textvariable=label_text_var,
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        )
+        thr_label.pack(anchor="w", padx=12, pady=(10, 2))
+
+        # Determine appropriate slider max based on image dtype and observed max
+        base_img = self.image_controller.get_current_image()
+        try:
+            img_arr = np.array(base_img)
+            # max value possible for the dtype (e.g., uint8 -> 255, uint16 -> 65535)
+            max_possible = int(2 ** (img_arr.dtype.itemsize * 8) - 1)
+            observed_max = int(img_arr.max()) if img_arr.size > 0 else 255
+            # Use observed max so slider reflects real image values; ensure at least 255
+            slider_max = max(observed_max, 255)
+            # But don't exceed dtype max
+            slider_max = min(slider_max, max_possible)
+        except Exception:
+            slider_max = 255
+
+        # Default threshold: midpoint of observed range (or half of slider_max fallback)
+        try:
+            default_thr = int(observed_max // 2) if observed_max > 0 else int(slider_max // 2)
+            default_thr = max(0, min(default_thr, slider_max))
+        except Exception:
+            default_thr = min(128, slider_max // 2)
+
+        thr_var = tk.IntVar(value=default_thr)
+
+        def _on_thr_change(v):
+            try:
+                val = int(float(v))
+            except Exception:
+                val = thr_var.get()
+
+            # Live preview: apply threshold to a copy of current image and set preview_image
+            try:
+                base = self.image_controller.get_current_image()
+                if base and hasattr(self.manual_adjustments, "segment_image"):
+                    # Convert slider value to int and call segmentation
+                    preview = self.manual_adjustments.segment_image(
+                        base, "threshold", threshold=int(val)
+                    )
+                    self.preview_image = preview
+                    self.display_image()
+            except Exception as e:
+                logger.error(f"Error en vista previa de umbral: {e}")
+
+        # Update label with actual range
+        try:
+            label_text_var.set(f"Selecciona el valor de umbral (0 - {slider_max}):")
+        except Exception:
+            label_text_var.set("Selecciona el valor de umbral:")
+
+        thr_scale = tk.Scale(
+            win,
+            from_=0,
+            to=slider_max,
+            resolution=1,
+            orient="horizontal",
+            variable=thr_var,
+            command=_on_thr_change,
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            length=320,
+        )
+        thr_scale.pack(padx=12)
+
+        # Live value label for clarity
+        value_var = tk.StringVar()
+        value_var.set(f"Valor: {default_thr}")
+        val_label = tk.Label(
+            win, textvariable=value_var, bg=self.theme["panel_bg"], fg=self.theme["text_color"]
+        )
+        val_label.pack(anchor="w", padx=12, pady=(6, 0))
+
+        # Ensure the scale shows the default value and trigger preview update
+        try:
+            thr_scale.config(from_=0, to=slider_max)
+            thr_var.set(int(default_thr))
+            thr_scale.set(int(default_thr))
+            # call preview handler once to show initial preview
+            _on_thr_change(str(int(default_thr)))
+        except Exception:
+            pass
+
+        # Wrap original preview callback to also update the live label
+        _orig_on_thr = _on_thr_change
+
+        def _on_thr_change_with_label(v):
+            try:
+                val = int(float(v))
+            except Exception:
+                val = thr_var.get()
+            try:
+                value_var.set(f"Valor: {val}")
+            except Exception:
+                pass
+            _orig_on_thr(v)
+
+        # Rebind the scale command to the wrapper
+        try:
+            thr_scale.configure(command=_on_thr_change_with_label)
+        except Exception:
+            pass
+
+        def apply_threshold():
+            t = thr_var.get()
+            # Commit: clear preview, update manager and emit event
+            try:
+                result = self.manual_adjustments.segment_image(
+                    self.image_controller.get_current_image(), "threshold", threshold=int(t)
+                )
+                # Commit to image manager
+                try:
+                    self.preview_image = None
+                    self.image_controller.image_manager.update_image(
+                        result, f"Umbral manual: {int(t)}"
+                    )
+                    self.image_controller._emit("image_updated")
+                except Exception as e:
+                    logger.error(f"Error guardando imagen con umbral: {e}")
+            except Exception as e:
+                logger.error(f"Error aplicando umbral manual: {e}")
+            finally:
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+
+        btn_frame = tk.Frame(win, bg=self.theme["panel_bg"])
+        btn_frame.pack(fill="x", pady=10)
+
+        tk.Button(
+            btn_frame,
+            text="Aplicar",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            command=apply_threshold,
+        ).pack(side="left", padx=12)
+
+        def _cancel():
+            # Discard preview and restore displayed image
+            try:
+                self.preview_image = None
+                self.display_image()
+            except Exception as e:
+                logger.error(f"Error cancelando vista previa de umbral: {e}")
+            finally:
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+
+        tk.Button(
+            btn_frame,
+            text="Cancelar",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            command=_cancel,
+        ).pack(side="right", padx=12)
+
+    def on_cluster_segmentation(self):
+        if not self.image_controller.has_image():
+            self.show_message("Advertencia", "Primero carga una imagen")
+            return
+
+        k = simpledialog.askinteger(
+            "k-means", "Número de clusters (k):", parent=self.root, minvalue=2, maxvalue=20
+        )
+        if k is None:
+            return
+        # store the source image and chosen k so stats can be computed later without re-prompt
+        try:
+            base = self.image_controller.get_current_image()
+            self._last_kmeans_source = base.copy() if base else None
+            self._last_kmeans_k = int(k)
+        except Exception:
+            self._last_kmeans_source = None
+            self._last_kmeans_k = int(k)
+
+        # Run kmeans in a background thread and show progress dialog
+        progress_win = tk.Toplevel(self.root)
+        progress_win.title("K-means: procesando...")
+        progress_win.geometry("360x80")
+        progress_win.configure(bg=self.theme["panel_bg"])
+        progress_win.transient(self.root)
+        progress_win.grab_set()
+
+        tk.Label(
+            progress_win,
+            text=f"Ejecutando k-means (k={k})...",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        ).pack(anchor="w", padx=12, pady=(8, 4))
+
+        pb = ttk.Progressbar(progress_win, mode="indeterminate")
+        pb.pack(fill="x", padx=12, pady=(0, 8))
+        pb.start(50)
+
+        def _run_kmeans():
+            try:
+                base = self.image_controller.get_current_image()
+                if base is None:
+                    raise RuntimeError("No hay imagen para segmentar")
+
+                # compute segmentation (this may take time)
+                result = self.manual_adjustments.segment_image(base, "kmeans", k=int(k))
+
+                def _on_done():
+                    try:
+                        pb.stop()
+                        progress_win.grab_release()
+                        progress_win.destroy()
+                    except Exception:
+                        pass
+
+                    try:
+                        self.image_controller.image_manager.update_image(
+                            result, f"K-means (k={k})"
+                        )
+                        self.image_controller._emit("image_updated")
+                    except Exception as e:
+                        logger.error(f"Error guardando resultado k-means: {e}")
+                        self.show_message("Error", f"No se pudo actualizar imagen: {e}")
+
+                # schedule UI update
+                self.root.after(50, _on_done)
+
+            except Exception as e:
+                logger.error(f"Error en k-means background: {e}")
+
+                def _on_error():
+                    try:
+                        pb.stop()
+                        progress_win.grab_release()
+                        progress_win.destroy()
+                    except Exception:
+                        pass
+                    self.show_message("Error", f"K-means falló: {e}")
+
+                self.root.after(50, _on_error)
+
+        thread = threading.Thread(target=_run_kmeans, daemon=True)
+        thread.start()
+
+    def on_cluster_stats(self):
+        if not self.image_controller.has_image():
+            self.show_message("Advertencia", "Primero carga una imagen")
+            return
+        # Prefer using the last performed k-means (no prompt). If not available, ask for k.
+        k = getattr(self, "_last_kmeans_k", None)
+        source = getattr(self, "_last_kmeans_source", None)
+        if k is None or source is None:
+            k = simpledialog.askinteger(
+                "k-means Stats", "Número de clusters (k):", parent=self.root, minvalue=1, maxvalue=50
+            )
+            if k is None:
+                return
+            base = self.image_controller.get_current_image()
+        else:
+            base = source
+
+        try:
+            results = self.manual_adjustments.kmeans_cluster_stats(base, k=int(k))
+
+            st_win = tk.Toplevel(self.root)
+            st_win.title(f"Área y Perímetro por cluster (k={k})")
+            st_win.geometry("420x320")
+
+            txt = tk.Text(st_win, wrap="word")
+            txt.pack(fill="both", expand=True)
+            for r in results:
+                txt.insert(
+                    "end",
+                    f"Cluster {r['label']}: Área(píxeles)={r['area']}, Perímetro(píxeles)={r['perimeter']:.2f}, Count={r['count']}\n",
+                )
+            txt.config(state="disabled")
+
+        except Exception as e:
+            logger.error(f"Error calculando stats por cluster: {e}")
+            self.show_message("Error", f"No se pudieron calcular estadísticas: {e}")
+
+    def on_current_threshold_stats(self):
+        """Compute area & perimeter for the currently displayed image (useful after applying a threshold)."""
+        if not self.image_controller.has_image():
+            self.show_message("Advertencia", "Primero carga una imagen")
+            return
+
+        try:
+            img = self.image_controller.get_current_image()
+            if img is None:
+                self.show_message("Advertencia", "No hay imagen disponible")
+                return
+
+            stats = self.manual_adjustments.compute_mask_stats(img)
+
+            st_win = tk.Toplevel(self.root)
+            st_win.title("Área y Perímetro - Imagen actual")
+            st_win.geometry("420x320")
+
+            txt = tk.Text(st_win, wrap="word")
+            txt.pack(fill="both", expand=True)
+            if not stats:
+                txt.insert("end", "No se encontraron regiones o no es una máscara binaria\n")
+            else:
+                for label, vals in stats.items():
+                    txt.insert("end", f"Label: {label} → Área(píxeles): {vals['area']}, Perímetro(píxeles): {vals['perimeter']:.2f}\n")
+            txt.config(state="disabled")
+
+        except Exception as e:
+            logger.error(f"Error calculando estadísticas de imagen actual: {e}")
+            self.show_message("Error", f"No se pudieron calcular estadísticas: {e}")
+
+    def open_binary_threshold_window(self):
+        """Open a simple binary threshold dialog (no live preview)."""
+        if not self.image_controller.has_image():
+            self.show_message("Advertencia", "Primero carga una imagen")
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("Umbral Binario")
+        win.geometry("360x140")
+        win.configure(bg=self.theme["panel_bg"])
+
+        tk.Label(
+            win,
+            text="Selecciona el valor de umbral para binarización:",
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+        ).pack(anchor="w", padx=12, pady=(10, 2))
+
+        # Determine slider range from image dtype/observed values
+        base_img = self.image_controller.get_current_image()
+        try:
+            img_arr = np.array(base_img)
+            max_possible = int(2 ** (img_arr.dtype.itemsize * 8) - 1)
+            observed_max = int(img_arr.max()) if img_arr.size > 0 else 255
+            slider_max = max(observed_max, 255)
+            slider_max = min(slider_max, max_possible)
+        except Exception:
+            slider_max = 255
+
+        default_thr = int(observed_max // 2) if 'observed_max' in locals() else int(slider_max // 2)
+        thr_var = tk.IntVar(value=default_thr)
+
+        thr_scale = tk.Scale(
+            win,
+            from_=0,
+            to=slider_max,
+            resolution=1,
+            orient="horizontal",
+            variable=thr_var,
+            bg=self.theme["panel_bg"],
+            fg=self.theme["text_color"],
+            length=320,
+        )
+        thr_scale.pack(padx=12)
+
+        # Full-resolution live preview for binary threshold (may be slower on large images)
+        def _on_thr_change_fullres(v):
+            try:
+                val = int(float(v))
+            except Exception:
+                val = thr_var.get()
+
+            try:
+                base = self.image_controller.get_current_image()
+                if base and hasattr(self.manual_adjustments, "segment_image"):
+                    preview = self.manual_adjustments.segment_image(
+                        base, "threshold", threshold=int(val)
+                    )
+                    self.preview_image = preview
+                    self.display_image()
+            except Exception as e:
+                logger.error(f"Error en vista previa umbral binario (full-res): {e}")
+
+        # Bind preview callback and trigger initial preview
+        try:
+            thr_scale.configure(command=_on_thr_change_fullres)
+            thr_scale.set(int(thr_var.get()))
+            _on_thr_change_fullres(str(int(thr_var.get())))
+        except Exception:
+            pass
+
+        def apply_binary():
+            t = int(thr_var.get())
+            try:
+                result = self.manual_adjustments.segment_image(
+                    self.image_controller.get_current_image(), "threshold", threshold=t
+                )
+                # Commit result
+                try:
+                    self.preview_image = None
+                    self.image_controller.image_manager.update_image(
+                        result, f"Umbral binario: {t}"
+                    )
+                    self.image_controller._emit("image_updated")
+                except Exception as e:
+                    logger.error(f"Error guardando imagen con umbral binario: {e}")
+                    self.show_message("Error", f"No se pudo actualizar imagen: {e}")
+            except Exception as e:
+                logger.error(f"Error aplicando umbral binario: {e}")
+                self.show_message("Error", f"Fallo al aplicar umbral: {e}")
+            finally:
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+
+        def _show_stats_for_threshold(t: int):
+            try:
+                seg = self.manual_adjustments.segment_image(
+                    self.image_controller.get_current_image(), "threshold", threshold=int(t)
+                )
+                stats = self.manual_adjustments.compute_mask_stats(seg)
+                # show results in dialog
+                st_win = tk.Toplevel(self.root)
+                st_win.title(f"Área y Perímetro - Umbral {t}")
+                st_win.geometry("400x300")
+                txt = tk.Text(st_win, wrap="word")
+                txt.pack(fill="both", expand=True)
+                for label, vals in stats.items():
+                    txt.insert("end", f"Label: {label} → Área(píxeles): {vals['area']}, Perímetro(píxeles): {vals['perimeter']:.2f}\n")
+                txt.config(state="disabled")
+            except Exception as e:
+                logger.error(f"Error mostrando stats umbral: {e}")
+                self.show_message("Error", f"No se pudieron calcular estadísticas: {e}")
+
+        btn_frame = tk.Frame(win, bg=self.theme["panel_bg"])
+        btn_frame.pack(fill="x", pady=10)
+
+        tk.Button(
+            btn_frame,
+            text="Aplicar",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            command=apply_binary,
+        ).pack(side="left", padx=12)
+
+        tk.Button(
+            btn_frame,
+            text="Área y Perímetro",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            command=lambda: _show_stats_for_threshold(int(thr_var.get())),
+        ).pack(side="left", padx=6)
+
+        def _cancel_bin():
+            try:
+                self.preview_image = None
+                self.display_image()
+            except Exception:
+                pass
+            try:
+                win.destroy()
+            except Exception:
+                pass
+
+        tk.Button(
+            btn_frame,
+            text="Cancelar",
+            bg=self.theme["accent"],
+            fg=self.theme["text_color"],
+            command=_cancel_bin,
+        ).pack(side="right", padx=12)
 
     def update_histogram(self):
         hist_data = self.image_controller.get_histogram_data()
@@ -938,112 +1818,6 @@ class MainWindow:
         }
         return descriptions.get(method, "Método de normalización OpenCV")
 
-    def on_fft_analysis(self):
-        if self.image_controller.has_image():
-            image = self.image_controller.get_current_image()
-            result = self.analysis_controller.analyze_frequency_domain(image)
-            self.show_analysis_result("Análisis FFT - Dominio de Frecuencia", result)
-        else:
-            self.show_message("Advertencia", "Primero carga una imagen")
-
-    def on_file(self):
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Abrir imagen...", command=self.on_open_image)
-        menu.add_separator()
-        menu.add_command(label="Guardar imagen", command=self.on_save_image)
-        menu.add_command(label="Exportar como...", command=self.on_export_image)
-        menu.add_separator()
-        menu.add_command(label="Salir", command=self.root.quit)
-        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
-
-    def on_processing(self):
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Auto-mejorar", command=self.on_auto_enhance)
-        menu.add_separator()
-        menu.add_command(
-            label="Ajustar brillo/contraste", command=self.on_adjust_brightness
-        )
-        menu.add_command(label="Filtros", command=self.on_filters_menu)
-        menu.add_separator()
-        menu.add_command(label="Restaurar original", command=self.on_restore)
-        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
-
-    def on_analysis(self):
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(
-            label="Detección de anomalías", command=self.on_detect_anomalies
-        )
-        menu.add_command(
-            label="Detección de fracturas", command=self.on_detect_fractures
-        )
-        menu.add_command(label="Cardiomegalia", command=self.on_detect_heart)
-        menu.add_command(
-            label="Análisis FFT (Frecuencia)",
-            command=self.on_fft_analysis,
-        )
-        menu.add_command(label="Segmentación", command=self.on_segmentation)
-        menu.add_command(label="Análisis de texturas", command=self.on_texture_analysis)
-        menu.add_separator()
-        menu.add_command(label="Mostrar histograma", command=self.on_show_histogram)
-
-        try:
-            menu.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
-        finally:
-            menu.grab_release()
-
-    def on_settings(self):
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Tema claro/oscuro", command=self.on_toggle_theme)
-        menu.add_command(label="Configuración", command=self.on_config)
-        menu.post(self.root.winfo_pointerx(), self.root.winfo_pointery())
-
-
-def on_apply_filter(self, filter_type: str, params=None):
-    if params is None:
-        params = self.get_filter_parameters(filter_type)
-    self.image_controller.apply_filter(filter_type, params)
-
-    def get_filter_parameters(self, filter_type):
-        param_window = tk.Toplevel(self.root)
-        param_window.title(f"Parámetros - {filter_type}")
-        param_window.geometry("300x200")
-
-        params = {}
-
-        if filter_type == "brightness_contrast":
-            brightness_var = tk.DoubleVar(value=1.0)
-            contrast_var = tk.DoubleVar(value=1.0)
-
-            tk.Label(param_window, text="Brillo:").pack()
-            tk.Scale(
-                param_window,
-                from_=0.1,
-                to=3.0,
-                resolution=0.1,
-                variable=brightness_var,
-                orient="horizontal",
-            ).pack()
-
-            tk.Label(param_window, text="Contraste:").pack()
-            tk.Scale(
-                param_window,
-                from_=0.1,
-                to=3.0,
-                resolution=0.1,
-                variable=contrast_var,
-                orient="horizontal",
-            ).pack()
-
-            def apply_params():
-                params["brightness"] = brightness_var.get()
-                params["contrast"] = contrast_var.get()
-                param_window.destroy()
-                self.image_controller.apply_filter(filter_type, params)
-
-            tk.Button(param_window, text="Aplicar", command=apply_params).pack()
-
-        return params
-
     def show_welcome_message(self):
         WelcomePopup(self.root, self.theme, self.fonts)
 
@@ -1056,230 +1830,3 @@ def on_apply_filter(self, filter_type: str, params=None):
 
     def on_levels_adjust(self):
         self.show_message("Info", "Ajuste de niveles en desarrollo")
-
-    def on_fft_analysis(self):
-        """Interfaz completa de análisis Fourier"""
-        if not self.image_controller.has_image():
-            self.show_message("Advertencia", "Primero carga una imagen")
-            return
-
-        fft_window = tk.Toplevel(self.root)
-        fft_window.title("Análisis Fourier - Dominio de Frecuencia")
-        fft_window.geometry("500x600")
-        fft_window.configure(bg=self.theme["panel_bg"])
-
-        main_frame = tk.Frame(fft_window, bg=self.theme["panel_bg"], padx=20, pady=20)
-        main_frame.pack(fill="both", expand=True)
-
-        # Título
-        tk.Label(
-            main_frame,
-            text="Análisis en Dominio de Frecuencia",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-            font=(self.fonts["title"]["family"], 14, "bold"),
-        ).pack(anchor="w", pady=(0, 20))
-
-        # Sección de análisis
-        analysis_frame = tk.LabelFrame(
-            main_frame,
-            text=" Análisis Espectral ",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-            font=(self.fonts["main"]["family"], 10, "bold"),
-        )
-        analysis_frame.pack(fill="x", pady=(0, 15))
-
-        tk.Button(
-            analysis_frame,
-            text="🔍 Analizar Espectro FFT",
-            bg=self.theme["accent"],
-            fg=self.theme["text_color"],
-            font=(self.fonts["main"]["family"], 10),
-            command=self._run_fft_analysis,
-            width=20,
-        ).pack(pady=10)
-
-        # Sección de filtros de frecuencia
-        filter_frame = tk.LabelFrame(
-            main_frame,
-            text=" Filtros de Frecuencia ",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-            font=(self.fonts["main"]["family"], 10, "bold"),
-        )
-        filter_frame.pack(fill="x", pady=(0, 15))
-
-        # Tipo de filtro
-        tk.Label(
-            filter_frame,
-            text="Tipo de Filtro:",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-        ).pack(anchor="w", pady=(5, 0))
-
-        filter_type_var = tk.StringVar(value="high")
-        filter_types = [
-            ("Pasa Altas (Enfocar)", "high"),
-            ("Pasa Bajas (Suavizar)", "low"),
-            ("Pasa Banda", "band"),
-            ("Rechaza Banda", "band_stop"),
-        ]
-
-        filter_type_frame = tk.Frame(filter_frame, bg=self.theme["panel_bg"])
-        filter_type_frame.pack(fill="x", pady=5)
-
-        for text, value in filter_types:
-            tk.Radiobutton(
-                filter_type_frame,
-                text=text,
-                variable=filter_type_var,
-                value=value,
-                bg=self.theme["panel_bg"],
-                fg=self.theme["text_color"],
-                selectcolor=self.theme["accent"],
-            ).pack(side="left", padx=10)
-
-        # Parámetros del filtro
-        params_frame = tk.Frame(filter_frame, bg=self.theme["panel_bg"])
-        params_frame.pack(fill="x", pady=10)
-
-        # Cutoff frequency
-        tk.Label(
-            params_frame,
-            text="Frecuencia de Corte:",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-        ).grid(row=0, column=0, sticky="w", pady=5)
-
-        cutoff_var = tk.IntVar(value=30)
-        cutoff_scale = tk.Scale(
-            params_frame,
-            from_=10,
-            to=100,
-            variable=cutoff_var,
-            orient="horizontal",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-            troughcolor=self.theme["accent"],
-            length=200,
-        )
-        cutoff_scale.grid(row=0, column=1, sticky="ew", padx=10, pady=5)
-
-        # Strength
-        tk.Label(
-            params_frame,
-            text="Fuerza del Filtro:",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-        ).grid(row=1, column=0, sticky="w", pady=5)
-
-        strength_var = tk.DoubleVar(value=1.0)
-        strength_scale = tk.Scale(
-            params_frame,
-            from_=0.1,
-            to=2.0,
-            resolution=0.1,
-            variable=strength_var,
-            orient="horizontal",
-            bg=self.theme["panel_bg"],
-            fg=self.theme["text_color"],
-            troughcolor=self.theme["accent"],
-            length=200,
-        )
-        strength_scale.grid(row=1, column=1, sticky="ew", padx=10, pady=5)
-
-        params_frame.columnconfigure(1, weight=1)
-
-        # Botones de acción
-        button_frame = tk.Frame(main_frame, bg=self.theme["panel_bg"])
-        button_frame.pack(fill="x", pady=20)
-
-        def apply_frequency_filter():
-            try:
-                current_image = self.image_controller.get_current_image()
-                filtered_image = self.analysis_controller.apply_frequency_filter(
-                    current_image,
-                    filter_type_var.get(),
-                    cutoff_var.get(),
-                    strength_var.get(),
-                )
-
-                self.image_controller.image_manager.update_image(
-                    filtered_image, f"Filtro Frecuencia: {filter_type_var.get()}"
-                )
-                self.display_image()
-                self.update_histogram()
-
-                self.show_message(
-                    "Éxito",
-                    f"Filtro {filter_type_var.get()} aplicado correctamente\n"
-                    f"Cutoff: {cutoff_var.get()}, Fuerza: {strength_var.get():.1f}",
-                )
-
-            except Exception as e:
-                logger.error(f"Error aplicando filtro frecuencia: {e}")
-                self.show_message("Error", f"Error aplicando filtro: {str(e)}")
-
-        def show_spectrum():
-            try:
-                current_image = self.image_controller.get_current_image()
-                spectrum_image = self.analysis_controller.get_frequency_spectrum(
-                    current_image
-                )
-
-                # Mostrar en ventana separada
-                spectrum_window = tk.Toplevel(self.root)
-                spectrum_window.title("Espectro de Frecuencia")
-                spectrum_window.geometry("400x400")
-
-                # Convertir para mostrar en tkinter
-                from PIL import ImageTk
-
-                spectrum_photo = ImageTk.PhotoImage(spectrum_image)
-
-                spectrum_label = tk.Label(spectrum_window, image=spectrum_photo)
-                spectrum_label.image = spectrum_photo  # Mantener referencia
-                spectrum_label.pack(padx=10, pady=10)
-
-                tk.Label(
-                    spectrum_window,
-                    text="Espectro de Frecuencia (FFT Magnitude)",
-                    font=("Arial", 10, "bold"),
-                ).pack(pady=(0, 10))
-
-            except Exception as e:
-                logger.error(f"Error mostrando espectro: {e}")
-                self.show_message("Error", f"Error mostrando espectro: {str(e)}")
-
-        tk.Button(
-            button_frame,
-            text="Aplicar Filtro",
-            bg=self.theme["accent"],
-            fg=self.theme["text_color"],
-            font=(self.fonts["main"]["family"], 10, "bold"),
-            command=apply_frequency_filter,
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            button_frame,
-            text="Ver Espectro",
-            bg=self.theme["accent"],
-            fg=self.theme["text_color"],
-            command=show_spectrum,
-        ).pack(side="left", padx=5)
-
-        tk.Button(
-            button_frame,
-            text="Cerrar",
-            bg=self.theme["accent"],
-            fg=self.theme["text_color"],
-            command=fft_window.destroy,
-        ).pack(side="right", padx=5)
-
-    def _run_fft_analysis(self):
-        """Ejecuta el análisis FFT y muestra resultados"""
-        if self.image_controller.has_image():
-            image = self.image_controller.get_current_image()
-            result = self.analysis_controller.analyze_frequency_domain(image)
-            self.show_analysis_result("Análisis FFT - Dominio de Frecuencia", result)
