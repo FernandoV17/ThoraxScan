@@ -122,10 +122,13 @@ class ManualAdjustments:
                     return normalized
 
                 elif method == "adaptive":
-                    mean = img_array.mean()
-                    std = img_array.std()
-                    normalized = (img_array - mean) / std * 64 + 128  # Centrar en 128
-                    normalized = np.clip(normalized, 0, 255).astype(np.uint8)
+                    return self._adaptive_normalization(img_array)
+
+                elif method == "contrast_stretch":
+                    return self._contrast_stretching(img_array)
+
+                elif method == "histogram_matching":
+                    return self._histogram_matching(img_array)
 
                 else:
                     logger.warning(f"Método de normalización no reconocido: {method}")
@@ -138,6 +141,36 @@ class ManualAdjustments:
             except Exception as e:
                 logger.error(f"Error normalizando imagen: {e}")
                 return image
+
+    def _adaptive_normalization(self, img_array: np.ndarray) -> Image.Image:
+        try:
+            import cv2
+
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            normalized = clahe.apply(img_array)
+            return Image.fromarray(normalized)
+        except ImportError:
+            logger.warning("OpenCV no disponible para CLAHE")
+            # Fallback a ecualización simple
+            return ImageOps.equalize(Image.fromarray(img_array))
+
+    def _contrast_stretching(self, img_array: np.ndarray) -> Image.Image:
+        p2, p98 = np.percentile(img_array, (2, 98))
+        if p98 > p2:
+            stretched = np.clip((img_array - p2) * (255.0 / (p98 - p2)), 0, 255)
+        else:
+            stretched = img_array
+        return Image.fromarray(stretched.astype(np.uint8))
+
+    def _histogram_matching(self, img_array: np.ndarray) -> Image.Image:
+        try:
+            import cv2
+
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            equalized = clahe.apply(img_array)
+            return Image.fromarray(equalized)
+        except ImportError:
+            return ImageOps.equalize(Image.fromarray(img_array))
 
     @log_function_call()
     def segment_image(
@@ -211,6 +244,7 @@ class ManualAdjustments:
                 return {}
 
             try:
+                # Usar cache para mejor rendimiento
                 cache_key = f"{id(image)}_{image.size}_{image.mode}"
                 if cache_key in self._histogram_cache:
                     return self._histogram_cache[cache_key]
@@ -221,16 +255,17 @@ class ManualAdjustments:
                 if len(img_array.shape) == 3:  # RGB
                     colors = ["red", "green", "blue"]
                     for i, color in enumerate(colors):
+                        channel_data = img_array[:, :, i]
                         hist, bins = np.histogram(
-                            img_array[:, :, i], bins=256, range=(0, 255)
+                            channel_data, bins=256, range=(0, 255)
                         )
                         histogram_data[color] = {
                             "values": hist.tolist(),
-                            "bins": bins[:-1].tolist(),  # Excluir el último bin
+                            "bins": bins[:-1].tolist(),
                         }
                     histogram_data["type"] = "rgb"
 
-                else:
+                else:  # Escala de grises
                     hist, bins = np.histogram(img_array, bins=256, range=(0, 255))
                     histogram_data["gray"] = {
                         "values": hist.tolist(),
@@ -238,13 +273,31 @@ class ManualAdjustments:
                     }
                     histogram_data["type"] = "grayscale"
 
-                histogram_data["stats"] = {
-                    "mean": float(np.mean(img_array)),
-                    "std": float(np.std(img_array)),
-                    "min": int(np.min(img_array)),
-                    "max": int(np.max(img_array)),
-                    "median": int(np.median(img_array)),
+                flat_array = img_array.flatten()
+                stats = {
+                    "mean": float(np.mean(flat_array)),
+                    "std": float(np.std(flat_array)),
+                    "min": int(np.min(flat_array)),
+                    "max": int(np.max(flat_array)),
+                    "median": int(np.median(flat_array)),
+                    "total_pixels": int(flat_array.size),
+                    "dynamic_range": int(np.max(flat_array) - np.min(flat_array)),
                 }
+
+                try:
+                    if histogram_data["type"] == "grayscale":
+                        mode_index = np.argmax(histogram_data["gray"]["values"])
+                        stats["mode"] = int(mode_index)
+                    else:
+                        modes = []
+                        for color in ["red", "green", "blue"]:
+                            mode_index = np.argmax(histogram_data[color]["values"])
+                            modes.append(int(mode_index))
+                        stats["mode"] = int(np.mean(modes))
+                except:
+                    stats["mode"] = 0
+
+                histogram_data["stats"] = stats
 
                 self._histogram_cache[cache_key] = histogram_data
                 if len(self._histogram_cache) > 10:  # Limitar cache

@@ -4,8 +4,10 @@ release: "Beta"
 build: 1
 
 author:
-  main: "Varios de la clase de PDI"
+  main: "Equipo de Desarrollo PDI-AD2025"
   contributors:
-    - "Por definir"
+    - "Fernando Villarreal"
+    - "Fernando Patricio"
+    - "Rafael Vargas Moya"
 
 notes: "Versión preliminar para práctica y demo escolar."
