@@ -1,6 +1,7 @@
 import threading
 from typing import Any, Dict, List
 
+import cv2
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
@@ -99,9 +100,7 @@ class ManualAdjustments:
                 return image
 
     @log_function_call()
-    def normalize_image(
-        self, image: Image.Image, method: str = "global"
-    ) -> Image.Image:
+    def normalize_image(self, image: Image.Image, method: str = "clahe") -> Image.Image:
         with self._lock:
             if not image:
                 return image
@@ -109,68 +108,68 @@ class ManualAdjustments:
             try:
                 img_array = np.array(image)
 
-                if method == "global":
-                    normalized = (
-                        (img_array - img_array.min())
-                        / (img_array.max() - img_array.min())
-                        * 255
-                    )
-                    normalized = normalized.astype(np.uint8)
+                if len(img_array.shape) == 3:
+                    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
 
+                if method == "clahe":
+                    normalized = self._normalize_clahe(img_array)
                 elif method == "histogram":
-                    normalized = ImageOps.equalize(Image.fromarray(img_array))
-                    return normalized
-
-                elif method == "adaptive":
-                    return self._adaptive_normalization(img_array)
-
+                    normalized = self._normalize_histogram(img_array)
+                elif method == "global":
+                    normalized = self._normalize_global(img_array)
                 elif method == "contrast_stretch":
-                    return self._contrast_stretching(img_array)
-
-                elif method == "histogram_matching":
-                    return self._histogram_matching(img_array)
-
+                    normalized = self._normalize_contrast_stretch(img_array)
+                elif method == "local":
+                    normalized = self._normalize_local(img_array)
+                elif method == "percentile":
+                    normalized = self._normalize_percentile(img_array)
                 else:
-                    logger.warning(f"Método de normalización no reconocido: {method}")
-                    return image
+                    normalized = self._normalize_clahe(img_array)
 
-                result = Image.fromarray(normalized)
-                logger.debug(f"Imagen normalizada: {method}")
-                return result
+                logger.debug(f"Imagen normalizada con OpenCV: {method}")
+                return Image.fromarray(normalized)
 
             except Exception as e:
-                logger.error(f"Error normalizando imagen: {e}")
+                logger.error(f"Error normalizando imagen con OpenCV: {e}")
                 return image
 
-    def _adaptive_normalization(self, img_array: np.ndarray) -> Image.Image:
-        try:
-            import cv2
+    def _normalize_clahe(self, img_array: np.ndarray) -> np.ndarray:
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        return clahe.apply(img_array)
 
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            normalized = clahe.apply(img_array)
-            return Image.fromarray(normalized)
-        except ImportError:
-            logger.warning("OpenCV no disponible para CLAHE")
-            # Fallback a ecualización simple
-            return ImageOps.equalize(Image.fromarray(img_array))
+    def _normalize_histogram(self, img_array: np.ndarray) -> np.ndarray:
+        return cv2.equalizeHist(img_array)
 
-    def _contrast_stretching(self, img_array: np.ndarray) -> Image.Image:
+    def _normalize_global(self, img_array: np.ndarray) -> np.ndarray:
+        normalized = cv2.normalize(img_array, None, 0, 255, cv2.NORM_MINMAX)
+        return normalized.astype(np.uint8)
+
+    def _normalize_contrast_stretch(self, img_array: np.ndarray) -> np.ndarray:
         p2, p98 = np.percentile(img_array, (2, 98))
         if p98 > p2:
             stretched = np.clip((img_array - p2) * (255.0 / (p98 - p2)), 0, 255)
-        else:
-            stretched = img_array
-        return Image.fromarray(stretched.astype(np.uint8))
+            return stretched.astype(np.uint8)
+        return img_array
 
-    def _histogram_matching(self, img_array: np.ndarray) -> Image.Image:
-        try:
-            import cv2
+    def _normalize_local(self, img_array: np.ndarray) -> np.ndarray:
+        img_float = img_array.astype(np.float32)
 
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-            equalized = clahe.apply(img_array)
-            return Image.fromarray(equalized)
-        except ImportError:
-            return ImageOps.equalize(Image.fromarray(img_array))
+        local_mean = cv2.GaussianBlur(img_float, (15, 15), 0)
+        local_sq_mean = cv2.GaussianBlur(img_float**2, (15, 15), 0)
+        local_std = np.sqrt(local_sq_mean - local_mean**2)
+
+        local_std[local_std < 1] = 1
+
+        normalized = (img_float - local_mean) / local_std
+        normalized = cv2.normalize(normalized, None, 0, 255, cv2.NORM_MINMAX)
+        return normalized.astype(np.uint8)
+
+    def _normalize_percentile(self, img_array: np.ndarray) -> np.ndarray:
+        p5, p95 = np.percentile(img_array, (5, 95))
+        if p95 > p5:
+            normalized = np.clip((img_array - p5) * (255.0 / (p95 - p5)), 0, 255)
+            return normalized.astype(np.uint8)
+        return img_array
 
     @log_function_call()
     def segment_image(

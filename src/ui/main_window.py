@@ -40,6 +40,10 @@ class MainWindow:
         self.image_controller.set_manual_adjustments(self.manual_adjustments)
         self.image_controller.set_analysis_controller(self.analysis_controller)
 
+        self.guide_lines = []
+        self.mouse_x = 0
+        self.mouse_y = 0
+
         self.setup_ui()
         logger.info("MainWindow inicializado correctamente")
 
@@ -520,7 +524,7 @@ class MainWindow:
 
     def on_analysis(self):
         menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label="Segmentacion", command=self.on_detect_anomalies)
+        menu.add_command(label="Segmentacion", command=self.Segmentacion)
         menu.add_command(
             label="Detección de fracturas", command=self.on_detect_fractures
         )
@@ -693,27 +697,24 @@ class MainWindow:
         update(self.root)
 
     def on_mouse_move(self, event):
-        """Callback cuando el mouse se mueve sobre el canvas"""
         self.mouse_x = event.x
         self.mouse_y = event.y
 
-        # Actualizar información de coordenadas en barra de estado
+        self.clear_mouse_guides()
+
         if self.image_controller.has_image():
             current_image = self.image_controller.get_current_image()
             if current_image:
-                # Calcular coordenadas relativas a la imagen
                 canvas_width = self.canvas.winfo_width()
                 canvas_height = self.canvas.winfo_height()
                 img_width, img_height = current_image.size
 
-                # Calcular escala
                 scale_x = img_width / canvas_width if canvas_width > 0 else 1
                 scale_y = img_height / canvas_height if canvas_height > 0 else 1
 
                 img_x = int(event.x * scale_x)
                 img_y = int(event.y * scale_y)
 
-                # Obtener valor del pixel si está dentro de los límites
                 pixel_value = "N/A"
                 if 0 <= img_x < img_width and 0 <= img_y < img_height:
                     img_array = np.array(current_image)
@@ -722,61 +723,77 @@ class MainWindow:
                     else:  # RGB
                         pixel_value = img_array[img_y, img_x]
 
-                # Actualizar barra de estado
                 coord_info = f"Pos: ({img_x}, {img_y}) | Pixel: {pixel_value}"
                 self.status_label.config(text=coord_info)
 
-                # Mostrar coordenadas en el canvas
-                self.show_coordinates_on_canvas(
-                    event.x, event.y, img_x, img_y, pixel_value
+                self.draw_mouse_guides(event.x, event.y, canvas_width, canvas_height)
+
+    def clear_mouse_guides(self):
+        if hasattr(self, "guide_lines"):
+            for line in self.guide_lines:
+                self.canvas.delete(line)
+            self.guide_lines = []
+
+    def draw_mouse_guides(self, x, y, canvas_width, canvas_height):
+        self.clear_mouse_guides()
+
+        line_h = self.canvas.create_line(
+            0, y, canvas_width, y, fill="#FF4444", width=1, dash=(4, 2)
+        )
+        line_v = self.canvas.create_line(
+            x, 0, x, canvas_height, fill="#4444FF", width=1, dash=(4, 2)
+        )
+
+        self.guide_lines.extend([line_h, line_v])
+
+        dot = self.canvas.create_oval(
+            x - 3, y - 3, x + 3, y + 3, fill="#FFFF00", outline="#FF0000", width=2
+        )
+        self.guide_lines.append(dot)
+
+        if self.image_controller.has_image():
+            current_image = self.image_controller.get_current_image()
+            if current_image:
+                img_width, img_height = current_image.size
+                canvas_width = self.canvas.winfo_width()
+                canvas_height = self.canvas.winfo_height()
+
+                scale_x = img_width / canvas_width if canvas_width > 0 else 1
+                scale_y = img_height / canvas_height if canvas_height > 0 else 1
+                img_x = int(x * scale_x)
+                img_y = int(y * scale_y)
+
+                coord_x = self.canvas.create_text(
+                    canvas_width - 50,
+                    y,
+                    text=f"Y: {img_y}",
+                    fill="#FF4444",
+                    font=("Arial", 10, "bold"),
+                    anchor="e",
                 )
+                coord_y = self.canvas.create_text(
+                    x,
+                    15,
+                    text=f"X: {img_x}",
+                    fill="#4444FF",
+                    font=("Arial", 10, "bold"),
+                    anchor="n",
+                )
+
+                coord_center = self.canvas.create_text(
+                    x + 15,
+                    y - 15,
+                    text=f"({img_x}, {img_y})",
+                    fill="#FFFFFF",
+                    font=("Arial", 9, "bold"),
+                    anchor="nw",
+                )
+
+                self.guide_lines.extend([coord_x, coord_y, coord_center])
 
     def on_mouse_leave(self, event):
         self.status_label.config(text="Listo")
-        self.hide_coordinates_on_canvas()
-
-    def show_coordinates_on_canvas(self, canvas_x, canvas_y, img_x, img_y, pixel_value):
-        """Muestra las coordenadas y valor del pixel en el canvas"""
-        if self.coord_text:
-            self.canvas.delete(self.coord_text)
-
-        text = f"X: {img_x}, Y: {img_y}\nValor: {pixel_value}"
-
-        text_x = canvas_x + 10
-        text_y = canvas_y - 30
-
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
-
-        if text_x > canvas_width - 100:
-            text_x = canvas_x - 110
-        if text_y < 20:
-            text_y = canvas_y + 20
-
-        bg_id = self.canvas.create_rectangle(
-            text_x - 5,
-            text_y - 5,
-            text_x + 105,
-            text_y + 35,
-            fill="black",
-            stipple="gray50",
-            outline="white",
-        )
-
-        self.coord_text = self.canvas.create_text(
-            text_x, text_y, text=text, fill="white", font=("Arial", 8), anchor="nw"
-        )
-
-        self.canvas.coord_bg = bg_id
-
-    def hide_coordinates_on_canvas(self):
-        """Oculta las coordenadas del canvas"""
-        if self.coord_text:
-            self.canvas.delete(self.coord_text)
-            self.coord_text = None
-        if hasattr(self.canvas, "coord_bg"):
-            self.canvas.delete(self.canvas.coord_bg)
-            delattr(self.canvas, "coord_bg")
+        self.clear_mouse_guides()
 
     def on_adjust_brightness(self):
         if not self.image_controller.has_image():
@@ -949,13 +966,21 @@ class MainWindow:
         self.image_controller.apply_filter(filter_type)
         window.destroy()
 
+    def get_normalization_description(self, method: str) -> str:
+        descriptions = {
+            "clahe": "CLAHE (OpenCV) - Mejor para imágenes médicas, preserva detalles locales",
+            "histogram": "Ecualización de Histograma (OpenCV) - Mejora contraste global",
+            "global": "Normalización Min-Max (OpenCV) - Ajusta todo el rango dinámico",
+            "contrast_stretch": "Estiramiento de Contraste (OpenCV) - Usa percentiles 2-98%",
+            "local": "Normalización Local (OpenCV) - Adaptativa por regiones usando Gaussianas",
+            "percentile": "Normalización por Percentiles (OpenCV) - Usa percentiles 5-95% para rayos X",
+        }
+        return descriptions.get(method, "Método de normalización OpenCV")
+
+    def show_welcome_message(self):
+        WelcomePopup(self.root, self.theme, self.fonts)
+
     # ============ MÉTODOS PLACEHOLDER ============
-
-    def on_save_image(self):
-        self.show_message("Info", "Función de guardar en desarrollo")
-
-    def on_filters_menu(self):
-        self.show_message("Info", "Menú de filtros en desarrollo")
 
     def on_config(self):
         self.show_message(
@@ -964,6 +989,3 @@ class MainWindow:
 
     def on_levels_adjust(self):
         self.show_message("Info", "Ajuste de niveles en desarrollo")
-
-    def show_welcome_message(self):
-        WelcomePopup(self.root, self.theme, self.fonts)

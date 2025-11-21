@@ -4,6 +4,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 
+from src.analysis.frequency_analysis import FrequencyAnalysis
 from src.analysis.patology_detector import PatologyDetector
 from src.helpers.logger import get_module_logger
 
@@ -14,6 +15,7 @@ class AnalysisController:
     def __init__(self):
         self.patology_detector = PatologyDetector()
         logger.info("AnalysisController inicializado")
+        self.frequency_analyzer = FrequencyAnalysis()
 
     def detect_anomalies(self, pil_image):
         try:
@@ -249,7 +251,7 @@ Características encontradas:
 
 RECOMENDACIÓN: Consultar con especialista para confirmación."""
         else:
-            return f"""🔍 {title.upper()} - NO DETECTADA
+            return f"""{title.upper()} - NO DETECTADA
 
 Análisis realizado con {len(result.get("methods_used", []))} métodos.
 
@@ -272,3 +274,36 @@ NOTA: Este es un análisis automático. Siempre consulte con un radiólogo."""
             else:
                 formatted.append(f"{key}: {value}")
         return "\n".join(formatted)
+
+    def analyze_frequency_domain(self, pil_image):
+        try:
+            result = self.frequency_analyzer.analyze_fft(pil_image)
+
+            if result.get("has_artifacts", False):
+                artifact_status = "POSIBLES ARTEFACTOS DETECTADOS"
+                recommendation = "Se detectaron patrones periódicos que podrían indicar artefactos de adquisición."
+            else:
+                artifact_status = "SIN ARTEFACTOS EVIDENTES"
+                recommendation = "No se detectaron patrones periódicos significativos."
+
+            spectral = result.get("spectral_analysis", {})
+
+            return f"""📡 ANÁLISIS EN DOMINIO DE FRECUENCIA
+
+{artifact_status}
+
+Análisis Espectral:
+• Ratio Bajas Frecuencias: {spectral.get("low_freq_ratio", 0):.3f}
+• Ratio Altas Frecuencias: {spectral.get("high_freq_ratio", 0):.3f}
+• Entropía Espectral: {spectral.get("spectral_entropy", 0):.3f}
+
+Patrones Periódicos:
+• Picos significativos: {result.get("periodic_patterns", {}).get("num_significant_peaks", 0)}
+
+{recommendation}
+
+NOTA: Las visualizaciones espectrales se muestran en ventana externa."""
+
+        except Exception as e:
+            logger.error(f"Error en análisis FFT: {e}")
+            return f"Error en análisis de frecuencia: {str(e)}"
