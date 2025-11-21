@@ -7,3 +7,5 @@ pydicom
 pillow
 opencv-python
 torch
+scikit-learn
+scikit-image

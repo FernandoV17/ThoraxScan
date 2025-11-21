@@ -1,6 +1,5 @@
-import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
-from typing import Callable, Optional
+from tkinter import filedialog, simpledialog
+from typing import Callable
 
 from src.core.dicom_exporter import DICOMExporter
 from src.core.image_manager import ImageManager
@@ -137,16 +136,26 @@ class ImageController:
 
         if gamma is not None:
             try:
-                current_image = self.image_manager.get_current_image()
-                adjusted = self.manual_adjustments.adjust_gamma(current_image, gamma)
+                original_image = self.image_manager.original_image
+                adjusted = self.manual_adjustments.adjust_gamma(original_image, gamma)
                 self.image_manager.update_image(adjusted, f"Gamma: {gamma:.2f}")
                 self._emit("image_updated")
-                return True, f"Gamma ajustado a {gamma:.2f}"
+                return True, f"Gamma ajustado a {gamma:.2f} (desde original)"
             except Exception as e:
                 return False, f"No se pudo ajustar gamma: {str(e)}"
         return False, "Operación cancelada"
 
-    def normalize_image(self):
+    def get_normalization_methods(self):
+        return {
+            "CLAHE (Recomendado para Rayos X)": "clahe",
+            "Ecualización de Histograma": "histogram",
+            "Normalización Global Min-Max": "global",
+            "Estiramiento de Contraste": "contrast_stretch",
+            "Normalización Local Adaptativa": "local",
+            "Normalización por Percentiles": "percentile",
+        }
+
+    def normalize_image_with_method(self, method: str):
         if not self.image_manager.has_image():
             return False, "Primero carga una imagen"
 
@@ -154,13 +163,11 @@ class ImageController:
             return False, "Sistema de ajustes no disponible"
 
         try:
-            current_image = self.image_manager.get_current_image()
-            normalized = self.manual_adjustments.normalize_image(
-                current_image, "global"
-            )
-            self.image_manager.update_image(normalized, "Normalizada")
+            original_image = self.image_manager.original_image
+            normalized = self.manual_adjustments.normalize_image(original_image, method)
+            self.image_manager.update_image(normalized, f"Normalizada: {method}")
             self._emit("image_updated")
-            return True, "Imagen normalizada"
+            return True, f"Imagen normalizada con {method} (OpenCV)"
         except Exception as e:
             return False, f"No se pudo normalizar: {str(e)}"
 

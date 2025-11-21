@@ -137,7 +137,7 @@ class AdjustmentsPanel:
             self.on_slider_change()
 
     def create_additional_controls(self):
-        # Frame para controles extra
+        """Crea controles adicionales"""
         extra_frame = tk.Frame(self.main_frame, bg=self.theme["panel_bg"])
         extra_frame.pack(fill="x", pady=10)
 
@@ -164,6 +164,9 @@ class AdjustmentsPanel:
             fg=self.theme["text_color"],
             command=self.on_normalize,
         ).pack(side="left", padx=2)
+
+    def on_normalize(self):
+        pass
 
     def update_slider_values(self):
         if self.brightness_value and self.contrast_value:
