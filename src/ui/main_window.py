@@ -162,12 +162,46 @@ class MainWindow:
         main_frame = tk.Frame(self.root, bg=self.theme["global_bg"])
         main_frame.pack(fill="both", expand=True)
 
-        self.left_panel = tk.Frame(
-            main_frame, width=320, bg=self.theme["panel_bg"], padx=12, pady=12
+        # --- INICIO: Panel Izquierdo con Scrollbar ---
+        left_container = tk.Frame(
+            main_frame, width=340, bg=self.theme["panel_bg"]
         )
-        self.left_panel.pack(side="left", fill="y")
-        self.left_panel.pack_propagate(False)
+        left_container.pack(side="left", fill="y")
+        left_container.pack_propagate(False)
 
+        # Creamos un Canvas (lienzo) y un Scrollbar
+        left_canvas = tk.Canvas(left_container, bg=self.theme["panel_bg"], highlightthickness=0)
+        scrollbar = tk.Scrollbar(left_container, orient="vertical", command=left_canvas.yview)
+        
+        # Este Frame es el que se moverá dentro del Canvas
+        self.left_panel = tk.Frame(
+            left_canvas, bg=self.theme["panel_bg"], padx=12, pady=12
+        )
+
+        # Configuración para que funcione el scroll
+        self.left_panel.bind(
+            "<Configure>",
+            lambda e: left_canvas.configure(scrollregion=left_canvas.bbox("all"))
+        )
+
+        # Crear una ventana dentro del canvas que contiene nuestro panel
+        # width=320 asegura que los botones no se estiren infinito
+        left_canvas.create_window((0, 0), window=self.left_panel, anchor="nw", width=320)
+        left_canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Empaquetar todo
+        left_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Habilitar scroll con la rueda del mouse (opcional pero útil)
+        def _on_mousewheel(event):
+            left_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        # Solo activa el scroll cuando el mouse entra al panel
+        left_canvas.bind('<Enter>', lambda e: left_canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        left_canvas.bind('<Leave>', lambda e: left_canvas.unbind_all("<MouseWheel>"))
+        # --- FIN: Panel Izquierdo con Scrollbar ---
+        
         meta_frame = tk.Frame(self.left_panel, bg=self.theme["panel_bg"])
         meta_frame.pack(fill="x", pady=(0, 15))
 
