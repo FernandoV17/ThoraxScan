@@ -1,6 +1,6 @@
 # ThoraxScan - Analizador de Rayos X
 
-**Documentación completa:** [ Wiki de ThoraxScan](https://app.devin.ai/wiki/FernandoV17/ThoraxScan#2.4)
+**Documentación completa:** [ Wiki de ThoraxScan](https://deepwiki.com/FernandoV17/ThoraxScan)
 
 ## 🎉 Release BETA 0.1.0
 
@@ -113,3 +113,4 @@ Estoy dedicando tiempo libre a este proyecto para:
 ---
 
 *¿Interesado en el procesamiento de imágenes médicas? ¡Únete a este proyecto y ayúdanos a hacerlo crecer!* 🩺✨
+
